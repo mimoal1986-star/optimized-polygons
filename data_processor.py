@@ -124,7 +124,15 @@ class DataProcessor:
                 return None, "Не найдено валидных записей"
             
             # Объединение с существующими данными
-            self.data.update(new_data)
+            for key, new_record in new_data.items():
+                if key in self.data:
+                    # Если запись существует - обогащаем новыми полями
+                    for field, value in new_record.items():
+                        if value and value != '' and value != 'nan':
+                            self.data[key][field] = value
+                else:
+                    # Если записи нет - добавляем
+                    self.data[key] = new_record
             
             # Векторизированное удаление дубликатов 
             if self.data:
