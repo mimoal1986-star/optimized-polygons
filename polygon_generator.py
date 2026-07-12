@@ -64,14 +64,17 @@ class PolygonGenerator:
             kml = simplekml.Kml()
             print("✅ KML объект создан")
             
+            # Создаем стиль и добавляем в документ
             polystyle = simplekml.Style()
-            polystyle.polystyle.color = simplekml.Color.hex('7f00ff00')
+            polystyle.id = 'polygonStyle'
+            polystyle.polystyle.color = simplekml.Color.hex('7f00ff00')  # Полупрозрачный зеленый
             polystyle.polystyle.outline = 1
-            polystyle.linestyle.color = simplekml.Color.hex('ff00ff00')
+            polystyle.linestyle.color = simplekml.Color.hex('ff00ff00')  # Зеленый контур
             polystyle.linestyle.width = 2
             
-            kml.document.style = polystyle
-            print("✅ Стиль применен")
+            # Добавляем стиль в документ
+            kml.document.add_style(polystyle)  # ← ПРАВИЛЬНЫЙ СПОСОБ
+            print("✅ Стиль добавлен в документ")
             
             for i, polygon_data in enumerate(polygons_data):
                 print(f"  📍 Обработка полигона {i+1}/{len(polygons_data)}: {polygon_data.get('auditor_id', 'unknown')}")
@@ -81,15 +84,28 @@ class PolygonGenerator:
                     continue
                 
                 try:
-                    placemark = kml.newpolygon(name=f"🗺️ {polygon_data['auditor_id']}")
+                    auditor_id = polygon_data['auditor_id']
                     
-                    description = f"Аудитор: {polygon_data['auditor_id']}\n"
-                    description += f"Количество точек: {polygon_data.get('points_count', 0)}\n"
-                    if 'area_km2' in polygon_data:
-                        description += f"Площадь: {polygon_data['area_km2']:.1f} км²"
+                    # Получаем город из данных (первая запись аудитора)
+                    auditor_records = self.data_processor.get_data_by_auditor(auditor_id)
+                    city_from_data = city_name if city_name else 'Город'
+                    if auditor_records and len(auditor_records) > 0:
+                        city_from_data = auditor_records[0].get('city', city_from_data)
                     
+                    # Название: 🗺️ Город-Зона-Номер
+                    placemark_name = f"🗺️ {city_from_data}-Зона-{i+1}"
+                    
+                    # Описание
+                    description = f"Аудитор: {auditor_id}\n"
+                    description += f"Город: {city_from_data}\n"
+                    description += f"Количество точек: {polygon_data.get('points_count', 0)}"
+                    
+                    # Создаем Placemark
+                    placemark = kml.newpolygon(name=placemark_name)
                     placemark.description = description
+                    placemark.styleUrl = '#polygonStyle'  # ← ССЫЛКА НА СТИЛЬ
                     
+                    # Координаты полигона
                     coords = polygon_data['coordinates'].copy()
                     if coords and coords[0] != coords[-1]:
                         coords.append(coords[0])
@@ -97,13 +113,9 @@ class PolygonGenerator:
                     placemark.polygon.outerboundaryis = [
                         (float(lon), float(lat), 0) for lon, lat in coords
                     ]
-                    print(f"  ✅ Полигон {polygon_data['auditor_id']} добавлен (точек: {len(coords)})")
+                    print(f"  ✅ Полигон {auditor_id} добавлен (точек: {len(coords)})")
                     
-                    auditor_records = self.data_processor.get_data_by_auditor(
-                        polygon_data['auditor_id']
-                    )
-                    print(f"  📍 Добавляем {len(auditor_records)} точек для {polygon_data['auditor_id']}")
-                    
+                    # Добавляем точки аудитора
                     for record in auditor_records:
                         if 'lat' in record and 'lon' in record:
                             try:
@@ -122,6 +134,7 @@ class PolygonGenerator:
                     print(f"  ❌ Ошибка при добавлении полигона {polygon_data.get('auditor_id', 'unknown')}: {str(e)}")
                     continue
             
+            # Сохраняем KML
             filename = f"polygons_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
             if city_name:
                 filename = f"{city_name}_{filename}"
