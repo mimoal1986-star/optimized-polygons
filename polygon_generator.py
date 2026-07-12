@@ -1,6 +1,5 @@
 import numpy as np
 from shapely.geometry import Point, Polygon, MultiPoint
-from shapely.ops import convex_hull
 import simplekml
 import json
 import os
@@ -34,25 +33,18 @@ class PolygonGenerator:
         try:
             # Создание выпуклой оболочки
             multi_point = MultiPoint(points)
-            hull = multi_point.convex_hull
+            hull = multi_point.convex_hull  # Теперь работает
             
-            # Если полигон слишком простой (линия или точка)
             if hull.geom_type != 'Polygon':
                 return None, "Точки образуют линию, полигон не может быть создан"
             
-            # Добавляем буфер для расширения полигона (в градусах)
-            # Примерное преобразование км в градусы (1° ≈ 111 км)
             buffer_deg = buffer_km / 111.0
             expanded_polygon = hull.buffer(buffer_deg, resolution=4)
             
-            # Если после буфера получился MultiPolygon, берем самый большой
             if expanded_polygon.geom_type == 'MultiPolygon':
                 expanded_polygon = max(expanded_polygon.geoms, key=lambda p: p.area)
             
-            # Получение координат полигона
             coords = list(expanded_polygon.exterior.coords)
-            
-            # Рассчет площади в км² (приблизительно)
             area_km2 = expanded_polygon.area * 111 * 111
             
             return {
@@ -60,7 +52,7 @@ class PolygonGenerator:
                 'points_count': len(points),
                 'coordinates': [(float(lon), float(lat)) for lon, lat in coords],
                 'area_km2': area_km2,
-                'center': [float(coords[0][0]), float(coords[0][1])]  # Первая точка как центр
+                'center': [float(coords[0][0]), float(coords[0][1])]
             }, None
             
         except Exception as e:
@@ -71,21 +63,18 @@ class PolygonGenerator:
         try:
             kml = simplekml.Kml()
             
-            # Стиль для полигонов
             polystyle = simplekml.Style()
-            polystyle.polystyle.color = simplekml.Color.hex('7f00ff00')  # Полупрозрачный зеленый
+            polystyle.polystyle.color = simplekml.Color.hex('7f00ff00')
             polystyle.polystyle.outline = 1
             polystyle.linestyle.color = simplekml.Color.hex('ff00ff00')
             polystyle.linestyle.width = 2
             
-            # Добавление полигонов
             for polygon_data in polygons_data:
                 if 'coordinates' not in polygon_data or not polygon_data['coordinates']:
                     continue
                     
                 placemark = kml.newpolygon(name=f"🗺️ {polygon_data['auditor_id']}")
                 
-                # Описание
                 description = f"Аудитор: {polygon_data['auditor_id']}\n"
                 description += f"Количество точек: {polygon_data.get('points_count', 0)}\n"
                 if 'area_km2' in polygon_data:
@@ -93,9 +82,7 @@ class PolygonGenerator:
                 
                 placemark.description = description
                 
-                # Координаты полигона
                 coords = polygon_data['coordinates']
-                # Добавляем первую точку в конец для замыкания полигона
                 if coords and coords[0] != coords[-1]:
                     coords.append(coords[0])
                 
@@ -103,7 +90,6 @@ class PolygonGenerator:
                     (float(lon), float(lat), 0) for lon, lat in coords
                 ]
                 
-                # Добавление точек аудитора как отдельные маркеры
                 auditor_records = self.data_processor.get_data_by_auditor(
                     polygon_data['auditor_id']
                 )
@@ -122,7 +108,6 @@ class PolygonGenerator:
                         except (ValueError, TypeError):
                             continue
             
-            # Сохранение KML
             filename = f"polygons_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
             if city_name:
                 filename = f"{city_name}_{filename}"
@@ -162,7 +147,6 @@ class PolygonGenerator:
             if 'coordinates' not in polygon_data or not polygon_data['coordinates']:
                 continue
             
-            # Замыкаем полигон
             coords = polygon_data['coordinates'].copy()
             if coords and coords[0] != coords[-1]:
                 coords.append(coords[0])
