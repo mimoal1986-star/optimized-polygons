@@ -126,20 +126,21 @@ class DataProcessor:
             # Объединение с существующими данными
             self.data.update(new_data)
             
-            # Векторизированное удаление дубликатов
+            # Векторизированное удаление дубликатов 
             if self.data:
                 temp_df = pd.DataFrame(self.data.values())
                 
                 if not temp_df.empty:
-                    # Преобразуем visit_date в datetime для сортировки
+                    # Удаляем дубликаты по ТП + координаты (широта, долгота)
+                    # Оставляем последнюю запись (самую новую по дате)
                     temp_df['visit_date_dt'] = pd.to_datetime(temp_df['visit_date'])
                     temp_df = temp_df.sort_values('visit_date_dt', ascending=False)
-                    temp_df = temp_df.drop_duplicates(subset=['tp_id', 'visit_date'], keep='first')
+                    temp_df = temp_df.drop_duplicates(subset=['tp_id', 'lat', 'lon'], keep='first')
                     
                     # Конвертируем обратно в словарь
                     self.data = {}
                     for _, row in temp_df.iterrows():
-                        key = f"{row['tp_id']}_{row['visit_date']}"
+                        key = f"{row['tp_id']}_{row['lat']}_{row['lon']}"
                         self.data[key] = row.to_dict()
                         # Преобразуем numpy типы в Python типы
                         for k, v in self.data[key].items():
