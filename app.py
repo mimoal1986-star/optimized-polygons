@@ -7,6 +7,7 @@ import plotly.graph_objects as go
 from datetime import datetime
 import json
 import os
+import time
 
 # Настройка страницы
 st.set_page_config(
@@ -36,7 +37,7 @@ st.markdown("---")
 with st.sidebar:
     st.header("📊 Управление данными")
     
-    # Загрузка файла
+    # Загрузка файла с прогресс-баром
     uploaded_file = st.file_uploader(
         "Загрузите Excel файл с данными",
         type=['xlsx', 'xls'],
@@ -44,13 +45,41 @@ with st.sidebar:
     )
     
     if uploaded_file is not None:
-        with st.spinner("Обработка файла..."):
+        # Прогресс-бар
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        try:
+            # Имитация прогресса
+            status_text.text("Чтение файла...")
+            progress_bar.progress(20)
+            
+            # Обработка файла
             count, message = data_processor.process_uploaded_file(uploaded_file)
+            
+            progress_bar.progress(80)
+            status_text.text("Сохранение данных...")
+            
             if count:
+                progress_bar.progress(100)
+                status_text.text("✅ Готово!")
                 st.success(message)
+                time.sleep(1)
                 st.rerun()
             else:
+                progress_bar.progress(100)
+                status_text.text("❌ Ошибка!")
                 st.error(message)
+            
+            # Очистка прогресс-бара через 2 секунды
+            time.sleep(2)
+            progress_bar.empty()
+            status_text.empty()
+            
+        except Exception as e:
+            progress_bar.empty()
+            status_text.empty()
+            st.error(f"Ошибка при загрузке: {str(e)}")
     
     st.markdown("---")
     
@@ -119,25 +148,51 @@ with tab1:
         data_list = data_processor.get_data_by_auditor(selected_auditor)
     
     if data_list:
-        # Конвертация в DataFrame для отображения
+        # Конвертация в DataFrame
         df = pd.DataFrame(data_list)
+        
+        # Фильтрация валидных координат
         if 'lat' in df.columns and 'lon' in df.columns:
-            # Фильтруем только валидные координаты
-            df = df[(pd.to_numeric(df['lat'], errors='coerce').notna()) & 
-                    (pd.to_numeric(df['lon'], errors='coerce').notna())]
+            df['lat'] = pd.to_numeric(df['lat'], errors='coerce')
+            df['lon'] = pd.to_numeric(df['lon'], errors='coerce')
+            df = df.dropna(subset=['lat', 'lon'])
         
         if not df.empty:
             # Выбираем колонки для отображения
             display_cols = ['tp_id', 'auditor', 'city', 'visit_date', 'lat', 'lon']
             display_cols = [col for col in display_cols if col in df.columns]
             
+            # Поиск по данным
+            search = st.text_input("🔍 Поиск по ТП или городу", "")
+            if search:
+                mask = df['tp_id'].str.contains(search, case=False, na=False) | df['city'].str.contains(search, case=False, na=False)
+                df = df[mask]
+            
+            # Отображение с пагинацией
+            page_size = 50
+            total_records = len(df)
+            total_pages = max(1, (total_records + page_size - 1) // page_size)
+            
+            if total_pages > 1:
+                page = st.number_input(
+                    f"Страница (всего {total_pages})", 
+                    min_value=1, 
+                    max_value=total_pages, 
+                    value=1
+                )
+                start_idx = (page - 1) * page_size
+                end_idx = min(start_idx + page_size, total_records)
+                df_display = df.iloc[start_idx:end_idx]
+                st.caption(f"Показано {start_idx + 1}-{end_idx} из {total_records} записей")
+            else:
+                df_display = df
+                st.caption(f"Всего записей: {total_records}")
+            
             st.dataframe(
-                df[display_cols],
+                df_display[display_cols],
                 use_container_width=True,
                 height=400
             )
-            
-            st.caption(f"Всего записей: {len(df)}")
         else:
             st.info("Нет данных с валидными координатами")
     else:
@@ -150,7 +205,7 @@ with tab2:
         # Подготовка данных для карты
         df_map = pd.DataFrame(data_list)
         
-        # Фильтр по аудитору для карты
+        # Фильтр по аудитору
         selected_auditor_map = st.selectbox(
             "Выберите аудитора для карты",
             ["Все"] + auditors if auditors else ["Все"],
@@ -160,7 +215,7 @@ with tab2:
         if selected_auditor_map != "Все":
             df_map = df_map[df_map['auditor'] == selected_auditor_map]
         
-        # Проверка на валидные координаты
+        # Проверка координат
         if not df_map.empty and 'lat' in df_map.columns and 'lon' in df_map.columns:
             df_map['lat'] = pd.to_numeric(df_map['lat'], errors='coerce')
             df_map['lon'] = pd.to_numeric(df_map['lon'], errors='coerce')
@@ -168,7 +223,7 @@ with tab2:
         
         if not df_map.empty:
             try:
-                # Создание интерактивной карты
+                # Создание карты
                 fig = px.scatter_mapbox(
                     df_map,
                     lat='lat',
@@ -201,99 +256,106 @@ with tab2:
 with tab3:
     st.header("Генерация полигонов")
     
-    if st.button("🚀 Создать полигоны для всех аудиторов", type="primary"):
-        with st.spinner("Генерация полигонов..."):
-            polygons, errors = polygon_generator.create_polygons_for_all_auditors(
-                min_points=min_points,
-                buffer_km=buffer_km
-            )
-            
-            if polygons:
-                st.success(f"Создано {len(polygons)} полигонов")
+    # Проверка наличия данных
+    if not data_processor.data:
+        st.warning("Нет данных для генерации полигонов. Сначала загрузите файл с данными.")
+    else:
+        if st.button("🚀 Создать полигоны для всех аудиторов", type="primary"):
+            with st.spinner("Генерация полигонов..."):
+                # Показываем прогресс
+                status_text = st.empty()
+                status_text.info("Начинаем генерацию полигонов...")
                 
-                # Отображение полигонов
-                st.subheader("Результаты")
+                polygons, errors = polygon_generator.create_polygons_for_all_auditors(
+                    min_points=min_points,
+                    buffer_km=buffer_km
+                )
                 
-                # Таблица с информацией о полигонах
-                polygons_df = pd.DataFrame([
-                    {
-                        'Аудитор': p['auditor_id'],
-                        'Количество точек': p['points_count'],
-                        'Площадь (км²)': f"{p.get('area_km2', 0):.1f}"
-                    }
-                    for p in polygons
-                ])
-                st.dataframe(polygons_df, use_container_width=True)
+                status_text.empty()
                 
-                # Сохранение полигонов для экспорта
-                st.session_state['polygons'] = polygons
-                
-                # Визуализация полигонов
-                if len(polygons) > 0:
-                    st.subheader("Визуализация полигонов")
+                if polygons:
+                    st.success(f"✅ Создано {len(polygons)} полигонов")
                     
-                    # Сбор всех координат для карты
-                    all_coords = []
-                    for p in polygons:
-                        for lon, lat in p['coordinates']:
-                            all_coords.append({
-                                'auditor': p['auditor_id'],
-                                'lon': lon,
-                                'lat': lat,
-                                'type': 'polygon'
-                            })
+                    # Информация о полигонах
+                    st.subheader("Результаты")
                     
-                    if all_coords:
-                        df_poly = pd.DataFrame(all_coords)
+                    polygons_df = pd.DataFrame([
+                        {
+                            'Аудитор': p['auditor_id'],
+                            'Количество точек': p['points_count'],
+                            'Площадь (км²)': f"{p.get('area_km2', 0):.1f}"
+                        }
+                        for p in polygons
+                    ])
+                    st.dataframe(polygons_df, use_container_width=True)
+                    
+                    # Сохранение в сессию
+                    st.session_state['polygons'] = polygons
+                    
+                    # Визуализация полигонов
+                    if len(polygons) > 0:
+                        st.subheader("Визуализация полигонов")
                         
-                        try:
-                            fig = px.scatter_mapbox(
-                                df_poly,
-                                lat='lat',
-                                lon='lon',
-                                color='auditor',
-                                hover_data={'auditor': True},
-                                zoom=5,
-                                height=500,
-                                title="Визуализация полигонов"
-                            )
+                        all_coords = []
+                        for p in polygons:
+                            for lon, lat in p['coordinates']:
+                                all_coords.append({
+                                    'auditor': p['auditor_id'],
+                                    'lon': lon,
+                                    'lat': lat,
+                                    'type': 'polygon'
+                                })
+                        
+                        if all_coords:
+                            df_poly = pd.DataFrame(all_coords)
                             
-                            fig.update_layout(
-                                mapbox_style="open-street-map",
-                                margin={"r": 0, "t": 30, "l": 0, "b": 0}
-                            )
-                            
-                            st.plotly_chart(fig, use_container_width=True)
-                        except Exception as e:
-                            st.error(f"Ошибка при визуализации: {str(e)}")
-                
-                if errors:
-                    st.warning("Ошибки при создании некоторых полигонов:")
-                    for error in errors:
-                        st.code(error)
-            else:
-                st.error("Не удалось создать ни одного полигона")
-                if errors:
-                    for error in errors:
-                        st.code(error)
+                            try:
+                                fig = px.scatter_mapbox(
+                                    df_poly,
+                                    lat='lat',
+                                    lon='lon',
+                                    color='auditor',
+                                    hover_data={'auditor': True},
+                                    zoom=5,
+                                    height=500,
+                                    title="Визуализация полигонов"
+                                )
+                                
+                                fig.update_layout(
+                                    mapbox_style="open-street-map",
+                                    margin={"r": 0, "t": 30, "l": 0, "b": 0}
+                                )
+                                
+                                st.plotly_chart(fig, use_container_width=True)
+                            except Exception as e:
+                                st.error(f"Ошибка при визуализации: {str(e)}")
+                    
+                    if errors:
+                        st.warning("⚠️ Ошибки при создании некоторых полигонов:")
+                        for error in errors:
+                            st.code(error)
+                else:
+                    st.error("❌ Не удалось создать ни одного полигона")
+                    if errors:
+                        for error in errors:
+                            st.code(error)
     
     # Отображение сохраненных полигонов
     if 'polygons' in st.session_state and st.session_state['polygons']:
         st.markdown("---")
-        st.subheader("Сохраненные полигоны")
+        st.subheader("💾 Сохраненные полигоны")
         
         for p in st.session_state['polygons']:
-            with st.expander(f"🔷 {p['auditor_id']} ({p['points_count']} точек)"):
-                st.write(f"Площадь: {p.get('area_km2', 0):.1f} км²")
-                st.write("Координаты полигона (первые 5 точек):")
+            with st.expander(f"🔷 {p['auditor_id']} ({p['points_count']} точек, {p.get('area_km2', 0):.1f} км²)"):
+                st.write("Первые 5 точек полигона:")
                 st.code(p['coordinates'][:5])
 
 with tab4:
-    st.header("Экспорт данных")
+    st.header("📤 Экспорт данных")
     
     if 'polygons' in st.session_state and st.session_state['polygons']:
         # Экспорт в KML
-        st.subheader("Экспорт в KML")
+        st.subheader("🗺️ Экспорт в KML")
         
         if st.button("📥 Создать KML"):
             with st.spinner("Создание KML файла..."):
@@ -310,10 +372,10 @@ with tab4:
                             mime="application/vnd.google-earth.kml+xml"
                         )
                 else:
-                    st.error(f"Ошибка при создании KML файла: {kml_file if isinstance(kml_file, str) else 'Неизвестная ошибка'}")
+                    st.error(f"Ошибка при создании KML файла")
         
         # Экспорт в GeoJSON
-        st.subheader("Экспорт в GeoJSON")
+        st.subheader("🌐 Экспорт в GeoJSON")
         
         if st.button("📥 Создать GeoJSON"):
             with st.spinner("Создание GeoJSON файла..."):
@@ -333,22 +395,23 @@ with tab4:
                     st.error("Ошибка при создании GeoJSON файла")
         
         # Экспорт данных в CSV
-        st.subheader("Экспорт данных в CSV")
+        st.subheader("📊 Экспорт данных в CSV")
         
         if st.button("📥 Создать CSV"):
-            df_export = pd.DataFrame(list(data_processor.data.values()))
-            if not df_export.empty:
-                csv = df_export.to_csv(index=False)
-                
-                st.download_button(
-                    label="Скачать CSV",
-                    data=csv,
-                    file_name=f"auditor_data_{datetime.now().strftime('%Y%m%d')}.csv",
-                    mime="text/csv"
-                )
+            with st.spinner("Создание CSV файла..."):
+                df_export = pd.DataFrame(list(data_processor.data.values()))
+                if not df_export.empty:
+                    csv = df_export.to_csv(index=False)
+                    
+                    st.download_button(
+                        label="Скачать CSV",
+                        data=csv,
+                        file_name=f"auditor_data_{datetime.now().strftime('%Y%m%d')}.csv",
+                        mime="text/csv"
+                    )
     else:
-        st.info("Сначала создайте полигоны в разделе 'Полигоны'")
+        st.info("Сначала создайте полигоны в разделе '📐 Полигоны'")
 
 # Footer
 st.markdown("---")
-st.caption("Сервис разработан для генерации полигонов аудиторов на основе данных посещений")
+st.caption("🚀 Сервис разработан для генерации полигонов аудиторов на основе данных посещений")
