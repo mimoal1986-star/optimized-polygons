@@ -31,7 +31,7 @@ class PolygonGenerator:
         
         try:
             multi_point = MultiPoint(points)
-            hull = multi_point.convex_hull  # ← Здесь используется метод
+            hull = multi_point.convex_hull  # ← ЗДЕСЬ
             
             if hull.geom_type != 'Polygon':
                 return None, "Точки образуют линию, полигон не может быть создан"
@@ -99,7 +99,6 @@ class PolygonGenerator:
                     ]
                     print(f"  ✅ Полигон {polygon_data['auditor_id']} добавлен (точек: {len(coords)})")
                     
-                    # Добавляем точки аудитора
                     auditor_records = self.data_processor.get_data_by_auditor(
                         polygon_data['auditor_id']
                     )
@@ -123,7 +122,6 @@ class PolygonGenerator:
                     print(f"  ❌ Ошибка при добавлении полигона {polygon_data.get('auditor_id', 'unknown')}: {str(e)}")
                     continue
             
-            # Сохраняем KML
             filename = f"polygons_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
             if city_name:
                 filename = f"{city_name}_{filename}"
@@ -150,7 +148,6 @@ class PolygonGenerator:
             return None
     
     def create_polygons_for_all_auditors(self, min_points=3, buffer_km=0.5):
-        """Создание полигонов для всех аудиторов"""
         auditors = self.data_processor.get_auditors()
         polygons = []
         errors = []
@@ -174,7 +171,6 @@ class PolygonGenerator:
         return polygons, errors
     
     def export_to_geojson(self, polygons_data, filename='data/polygons.geojson'):
-        """Экспорт полигонов в GeoJSON"""
         features = []
         
         for polygon_data in polygons_data:
