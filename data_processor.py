@@ -4,57 +4,133 @@ import os
 from datetime import datetime
 import streamlit as st
 import numpy as np
+import requests
+import base64
 
 class DataProcessor:
-    def __init__(self, data_file='auditor_data.json'):
-        self.data_file = data_file
+    def __init__(self):
+        """Инициализация с GitHub API"""
+        # Проверяем наличие секретов
+        if 'github' not in st.secrets:
+            st.error("❌ Секреты GitHub не найдены. Добавьте их в Streamlit Secrets")
+            self.available = False
+            self.data = {}
+            return
+        
+        # GitHub настройки из секретов
+        self.token = st.secrets['github']['token']
+        self.repo = st.secrets['github']['repo']
+        self.branch = st.secrets['github']['branch']
+        self.file_path = 'auditor_data.json'
+        
+        # URL для GitHub API
+        self.api_url = f"https://api.github.com/repos/{self.repo}/contents/{self.file_path}"
+        self.headers = {
+            "Authorization": f"token {self.token}",
+            "Accept": "application/vnd.github.v3+json"
+        }
+        
+        self.available = True
         self.data = self.load_data()
     
-    def load_data(self):
-        """Загрузка данных из JSON файла"""
-        if os.path.exists(self.data_file):
-            try:
-                with open(self.data_file, 'r', encoding='utf-8') as f:
-                    return json.load(f)
-            except:
-                return {}
-        return {}
-    
-    def save_data(self):
-        """Сохранение данных в JSON файл"""
-        with open(self.data_file, 'w', encoding='utf-8') as f:
-            json.dump(self.data, f, ensure_ascii=False, indent=2)
-    
-    def process_uploaded_file(self, uploaded_file):
-        """Обработка загруженного Excel файла с векторизированными операциями"""
+    def _get_file_sha(self):
+        """Получает SHA текущего файла (нужен для обновления)"""
+        if not self.available:
+            return None
         try:
-            # Чтение файла с оптимизацией
-            df = pd.read_excel(
-                uploaded_file,
-                dtype=str,
-                engine='openpyxl'
+            response = requests.get(
+                self.api_url,
+                headers=self.headers,
+                params={"ref": self.branch}
+            )
+            if response.status_code == 200:
+                return response.json()["sha"]
+            return None
+        except Exception:
+            return None
+    
+    def load_data(self):
+        """Загрузка данных из GitHub"""
+        if not self.available:
+            return {}
+        
+        try:
+            response = requests.get(
+                self.api_url,
+                headers=self.headers,
+                params={"ref": self.branch}
             )
             
-            # Проверка наличия необходимых колонок
+            if response.status_code == 200:
+                content = response.json()
+                file_content = base64.b64decode(content["content"]).decode("utf-8")
+                return json.loads(file_content)
+            else:
+                # Если файла нет, возвращаем пустой словарь
+                return {}
+                
+        except Exception as e:
+            st.warning(f"Не удалось загрузить данные: {e}")
+            return {}
+    
+    def save_data(self):
+        """Сохранение данных в GitHub"""
+        if not self.available:
+            return False, "❌ GitHub не доступен"
+        
+        try:
+            # Конвертируем в JSON
+            content = json.dumps(self.data, indent=2, ensure_ascii=False)
+            content_base64 = base64.b64encode(content.encode("utf-8")).decode("utf-8")
+            
+            # Получаем SHA для обновления
+            sha = self._get_file_sha()
+            
+            # Формируем запрос
+            payload = {
+                "message": f"Обновление данных аудиторов от {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+                "content": content_base64,
+                "branch": self.branch
+            }
+            if sha:
+                payload["sha"] = sha
+            
+            response = requests.put(
+                self.api_url,
+                headers=self.headers,
+                json=payload
+            )
+            
+            if response.status_code in [200, 201]:
+                return True, f"✅ Данные сохранены в GitHub ({len(self.data)} записей)"
+            else:
+                return False, f"❌ Ошибка сохранения: {response.status_code}"
+                
+        except Exception as e:
+            return False, f"❌ Ошибка: {str(e)}"
+    
+    def process_uploaded_file(self, uploaded_file):
+        """Обработка загруженного Excel файла (без автосохранения)"""
+        try:
+            df = pd.read_excel(uploaded_file, dtype=str, engine='openpyxl')
+            
             required_cols = ['ТП', 'Дата визита', 'Гео/ш', 'Гео/д']
             missing_cols = [col for col in required_cols if col not in df.columns]
             if missing_cols:
                 return None, f"Отсутствуют колонки: {', '.join(missing_cols)}"
             
-            # Векторизированная фильтрация
+            # Фильтрация
             df = df[df['ТП'].notna() & (df['ТП'] != '') & (df['ТП'] != 'nan')]
             
-            # Конвертируем координаты
+            # Координаты
             df['lat'] = pd.to_numeric(df['Гео/ш'], errors='coerce')
             df['lon'] = pd.to_numeric(df['Гео/д'], errors='coerce')
-            
-            # Удаляем строки с некорректными координатами
             df = df.dropna(subset=['lat', 'lon'])
             
             if df.empty:
                 return None, "Нет данных с корректными координатами"
             
-            # Обработка дат
+            # Даты
             def parse_date(date_val):
                 if pd.isna(date_val):
                     return None
@@ -75,7 +151,7 @@ class DataProcessor:
             if df.empty:
                 return None, "Нет данных с корректными датами"
             
-            # Создание ключа на основе ТП и координат
+            # Ключ = ТП + координаты
             df['key'] = df['ТП'] + '_' + df['lat'].astype(str) + '_' + df['lon'].astype(str)
             
             # Формирование данных
@@ -115,24 +191,26 @@ class DataProcessor:
                 return None, "Не найдено валидных записей"
             
             # Обогащение данных (добавление новых полей, а не замена)
+            added_count = 0
+            updated_count = 0
             for key, new_record in new_data.items():
                 if key in self.data:
+                    # Обогащаем существующую запись
                     for field, value in new_record.items():
                         if value and value != '' and value != 'nan':
                             self.data[key][field] = value
+                    updated_count += 1
                 else:
+                    # Добавляем новую запись
                     self.data[key] = new_record
+                    added_count += 1
             
-            # Автоматическое сохранение после загрузки
-            self.save_data()
-            
-            return len(new_data), f"Успешно загружено {len(new_data)} записей"
+            return len(new_data), f"✅ Загружено {len(new_data)} записей (добавлено: {added_count}, обновлено: {updated_count})"
             
         except Exception as e:
             return None, f"Ошибка при обработке файла: {str(e)}"
     
     def get_auditors(self):
-        """Получить список всех аудиторов"""
         auditors = set()
         for record in self.data.values():
             auditor = record.get('auditor', '')
@@ -141,7 +219,6 @@ class DataProcessor:
         return sorted(list(auditors))
     
     def get_data_by_auditor(self, auditor_id):
-        """Получить данные по конкретному аудитору"""
         result = []
         for record in self.data.values():
             if record.get('auditor') == auditor_id:
@@ -149,7 +226,6 @@ class DataProcessor:
         return result
     
     def get_statistics(self):
-        """Получить статистику по данным"""
         stats = {
             'total_visits': len(self.data),
             'total_auditors': len(self.get_auditors()),
@@ -168,7 +244,6 @@ class DataProcessor:
         return stats
 
     def clear_data(self):
-        """Очистить все данные"""
         self.data = {}
-        self.save_data()
-        return "Все данные удалены"
+        success, message = self.save_data()
+        return f"Все данные удалены. {message}"
