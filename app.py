@@ -104,8 +104,11 @@ with st.sidebar:
     
     with col1:
         if st.button("💾 Сохранить данные", type="primary"):
-            data_processor.save_data()
-            st.success("✅ Данные сохранены в JSON!")
+            success, message = data_processor.save_data()
+            if success:
+                st.success(message)
+            else:
+                st.error(message)
     
     with col2:
         if st.button("🗑️ Очистить всё", type="secondary"):
