@@ -1,0 +1,70 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+pythonenv*
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+*.ipynb
+
+# Файлы данных (ВАЖНО! Не пушим данные в GitHub)
+data/*.json
+data/*.kml
+data/*.geojson
+data/*.csv
+data/*.xlsx
+data/*.xls
+!data/.gitkeep
+
+# Логи
+*.log
+.streamlit/*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Файлы окружения
+.env
+.env.local
+.env.*.local
+
+# Streamlit
+.streamlit/
+*.pid
+
+# Результаты сборки
+dist/
+build/
+*.egg-info/
+*.egg
+
+# Временные файлы
+tmp/
+temp/
+*.tmp
+
+# Тестовые данные
+tests/test_data/
+*.test.xlsx
+*.test.csv
