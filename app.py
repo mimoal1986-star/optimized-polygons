@@ -108,6 +108,7 @@ with st.sidebar:
             success, message = data_processor.save_data()
             if success:
                 st.success(message)
+                st.rerun()
             else:
                 st.error(message)
     
