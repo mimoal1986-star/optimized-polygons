@@ -127,25 +127,28 @@ class DataProcessor:
             self.data.update(new_data)
             
             # Векторизированное удаление дубликатов
-            # Создаем временный DataFrame для удаления дубликатов
-            temp_df = pd.DataFrame(self.data.values())
-            
-            # Оставляем только последнюю запись по дате для каждого ключа
-            temp_df['visit_date'] = pd.to_datetime(temp_df['visit_date'])
-            temp_df = temp_df.sort_values('visit_date', ascending=False)
-            temp_df = temp_df.drop_duplicates(subset=['tp_id', 'visit_date'], keep='first')
-            
-            # Конвертируем обратно в словарь
-            self.data = {}
-            for _, row in temp_df.iterrows():
-                key = f"{row['tp_id']}_{row['visit_date'].strftime('%Y-%m-%d')}"
-                self.data[key] = row.to_dict()
-                # Преобразуем numpy типы в Python типы
-                for k, v in self.data[key].items():
-                    if isinstance(v, (np.int64, np.float64)):
-                        self.data[key][k] = v.item()
-                    elif isinstance(v, pd.Timestamp):
-                        self.data[key][k] = v.strftime('%Y-%m-%d')
+            if self.data:
+                temp_df = pd.DataFrame(self.data.values())
+                
+                if not temp_df.empty:
+                    # Преобразуем visit_date в datetime для сортировки
+                    temp_df['visit_date_dt'] = pd.to_datetime(temp_df['visit_date'])
+                    temp_df = temp_df.sort_values('visit_date_dt', ascending=False)
+                    temp_df = temp_df.drop_duplicates(subset=['tp_id', 'visit_date'], keep='first')
+                    
+                    # Конвертируем обратно в словарь
+                    self.data = {}
+                    for _, row in temp_df.iterrows():
+                        key = f"{row['tp_id']}_{row['visit_date']}"
+                        self.data[key] = row.to_dict()
+                        # Преобразуем numpy типы в Python типы
+                        for k, v in self.data[key].items():
+                            if isinstance(v, (np.int64, np.float64)):
+                                self.data[key][k] = v.item()
+                            elif isinstance(v, pd.Timestamp):
+                                self.data[key][k] = v.strftime('%Y-%m-%d')
+                            elif isinstance(v, (np.bool_)):
+                                self.data[key][k] = bool(v)
             
             self.save_data()
             
