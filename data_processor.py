@@ -11,20 +11,17 @@ import uuid
 class DataProcessor:
     def __init__(self):
         """Инициализация с GitHub API"""
-        # Проверяем наличие секретов
         if 'github' not in st.secrets:
             st.error("❌ Секреты GitHub не найдены. Добавьте их в Streamlit Secrets")
             self.available = False
             self.data = {}
             return
         
-        # GitHub настройки из секретов
         self.token = st.secrets['github']['token']
         self.repo = st.secrets['github']['repo']
         self.branch = st.secrets['github']['branch']
         self.file_path = 'auditor_data.json'
         
-        # URL для GitHub API
         self.api_url = f"https://api.github.com/repos/{self.repo}/contents/{self.file_path}"
         self.headers = {
             "Authorization": f"token {self.token}",
@@ -35,7 +32,7 @@ class DataProcessor:
         self.data = self.load_data()
     
     def _get_file_sha(self):
-        """Получает SHA текущего файла (нужен для обновления)"""
+        """Получает SHA текущего файла"""
         if not self.available:
             return None
         try:
@@ -66,9 +63,7 @@ class DataProcessor:
                 content = response.json()
                 file_content = base64.b64decode(content["content"]).decode("utf-8")
                 return json.loads(file_content)
-            else:
-                # Если файла нет, возвращаем пустой словарь
-                return {}
+            return {}
                 
         except Exception as e:
             st.warning(f"Не удалось загрузить данные: {e}")
@@ -84,6 +79,7 @@ class DataProcessor:
             data_list = list(self.data.values())
             for i, record in enumerate(data_list, 1):
                 record['record_number'] = i
+                record['record_updated'] = datetime.now().isoformat()
             
             # Пересобираем словарь
             self.data = {}
@@ -120,7 +116,11 @@ class DataProcessor:
             return False, f"❌ Ошибка: {str(e)}"
     
     def process_uploaded_file(self, uploaded_file):
-        """Обработка загруженного Excel файла (без автосохранения)"""
+        """Обработка загруженного Excel файла"""
+        # Проверка на пустой файл
+        if uploaded_file is None:
+            return None, "Файл не выбран"
+        
         try:
             df = pd.read_excel(uploaded_file, dtype=str, engine='openpyxl')
             
@@ -140,29 +140,26 @@ class DataProcessor:
             if df.empty:
                 return None, "Нет данных с корректными координатами"
             
-            # Даты
-            def parse_date(date_val):
-                if pd.isna(date_val):
-                    return None
-                try:
-                    if isinstance(date_val, str):
-                        for fmt in ['%Y-%m-%d', '%d.%m.%Y', '%Y/%m/%d', '%d-%m-%Y']:
-                            try:
-                                return pd.to_datetime(date_val, format=fmt).strftime('%Y-%m-%d')
-                            except:
-                                continue
-                    return pd.to_datetime(date_val).strftime('%Y-%m-%d')
-                except:
-                    return None
-            
-            df['visit_date'] = df['Дата визита'].apply(parse_date)
+            # Даты (оптимизировано)
+            df['visit_date'] = pd.to_datetime(
+                df['Дата визита'], 
+                errors='coerce'
+            ).dt.strftime('%Y-%m-%d')
             df = df.dropna(subset=['visit_date'])
             
             if df.empty:
                 return None, "Нет данных с корректными датами"
-
-            # 4. Ключ = ТП + дата + координаты (ПОСЛЕ создания всех полей)
-            df['key'] = df['ТП'] + '_' + df['visit_date'] + '_' + df['lat'].astype(str) + '_' + df['lon'].astype(str)
+            
+            # Ключ = ТП + дата + координаты
+            df['key'] = (
+                df['ТП'] + '_' + 
+                df['visit_date'] + '_' + 
+                df['lat'].astype(str) + '_' + 
+                df['lon'].astype(str)
+            )
+            
+            # Удаление дубликатов внутри файла
+            df = df.drop_duplicates(subset=['key'], keep='first')
             
             # Формирование данных
             new_data = {}
@@ -188,18 +185,18 @@ class DataProcessor:
             if not new_data:
                 return None, "Не найдено валидных записей"
             
-            # Обогащение данных (добавление новых полей, а не замена)
+            # Обогащение данных (оптимизировано)
             added_count = 0
             updated_count = 0
+            
             for key, new_record in new_data.items():
                 if key in self.data:
-                    # Обогащаем существующую запись
+                    # Обновляем только изменившиеся поля
                     for field, value in new_record.items():
                         if value and value != '' and value != 'nan':
                             self.data[key][field] = value
                     updated_count += 1
                 else:
-                    # Добавляем новую запись
                     self.data[key] = new_record
                     added_count += 1
             
