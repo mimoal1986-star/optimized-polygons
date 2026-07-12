@@ -6,6 +6,7 @@ import streamlit as st
 import numpy as np
 import requests
 import base64
+import uuid
 
 class DataProcessor:
     def __init__(self):
@@ -163,28 +164,16 @@ class DataProcessor:
                 tp_id = str(record['ТП'])
                 
                 new_data[key] = {
+                    'record_id': str(uuid.uuid4()),
+                    'record_created': datetime.now().isoformat(),
                     'tp_id': tp_id,
-                    'client_name': str(record.get('Имя клиента', '')) if pd.notna(record.get('Имя клиента', '')) else '',
-                    'wave_id': str(record.get('ID волны', '')) if pd.notna(record.get('ID волны', '')) else '',
-                    'wave_name': str(record.get('Название волны', '')) if pd.notna(record.get('Название волны', '')) else '',
-                    'region': str(record.get('Регион', '')) if pd.notna(record.get('Регион', '')) else '',
-                    'city': str(record.get('Город', '')) if pd.notna(record.get('Город', '')) else '',
-                    'asm': str(record.get('АСМ', '')) if pd.notna(record.get('АСМ', '')) else '',
-                    'em': str(record.get('ЭМ', '')) if pd.notna(record.get('ЭМ', '')) else '',
                     'auditor': tp_id,
-                    'order_id': str(record.get('ID заказа', '')) if pd.notna(record.get('ID заказа', '')) else '',
-                    'status': str(record.get('Статус', '')) if pd.notna(record.get('Статус', '')) else '',
-                    'visit_date': record['visit_date'],
-                    'request_date': str(record.get('Дата назначения запроса', '')) if pd.notna(record.get('Дата назначения запроса', '')) else '',
-                    'rp': str(record.get('РП', '')) if pd.notna(record.get('РП', '')) else '',
-                    'om': str(record.get('ОМ', '')) if pd.notna(record.get('ОМ', '')) else '',
-                    'branch_id': str(record.get('ID филиала', '')) if pd.notna(record.get('ID филиала', '')) else '',
-                    'branch_name': str(record.get('Полное название филиала', '')) if pd.notna(record.get('Полное название филиала', '')) else '',
+                    'city': str(record.get('Город', '')) if pd.notna(record.get('Город', '')) else '',
+                    'region': str(record.get('Регион', '')) if pd.notna(record.get('Регион', '')) else '',
                     'address': str(record.get('Адрес (город, адрес)', '')) if pd.notna(record.get('Адрес (город, адрес)', '')) else '',
+                    'visit_date': record['visit_date'],
                     'lat': float(record['lat']),
-                    'lon': float(record['lon']),
-                    'survey_id': str(record.get('ID обзора', '')) if pd.notna(record.get('ID обзора', '')) else '',
-                    'project_code': str(record.get('код проекта', '')) if pd.notna(record.get('код проекта', '')) else ''
+                    'lon': float(record['lon'])
                 }
             
             if not new_data:
