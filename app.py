@@ -108,7 +108,6 @@ with st.sidebar:
             success, message = data_processor.save_data()
             if success:
                 st.success(message)
-                st.rerun()
             else:
                 st.error(message)
     
@@ -119,7 +118,6 @@ with st.sidebar:
                 del st.session_state.file_processed
             if 'polygons' in st.session_state:
                 del st.session_state.polygons
-            # Убираем st.rerun() чтобы избежать цикла
             st.success("✅ Данные очищены")
     
     # Параметры генерации
