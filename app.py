@@ -64,15 +64,13 @@ with st.sidebar:
                 progress_bar.progress(100)
                 status_text.text("✅ Готово!")
                 st.success(message)
-                time.sleep(1)
-                st.rerun()
+                # Убираем st.rerun() и time.sleep()
             else:
                 progress_bar.progress(100)
                 status_text.text("❌ Ошибка!")
                 st.error(message)
             
-            # Очистка прогресс-бара через 2 секунды
-            time.sleep(2)
+            # Убираем прогресс-бар
             progress_bar.empty()
             status_text.empty()
             
@@ -102,9 +100,19 @@ with st.sidebar:
     # Действия с данными
     st.header("⚙️ Действия")
     
-    if st.button("🗑️ Очистить все данные", type="secondary"):
-        if st.button("Подтвердить удаление", type="primary"):
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("🔄 Обновить", type="primary"):
+            st.cache_data.clear()
+            st.rerun()
+    
+    with col2:
+        if st.button("🗑️ Очистить всё", type="secondary"):
             data_processor.clear_data()
+            if 'file_processed' in st.session_state:
+                del st.session_state.file_processed
+            if 'polygons' in st.session_state:
+                del st.session_state.polygons
             st.rerun()
     
     # Параметры генерации
@@ -165,7 +173,11 @@ with tab1:
             # Поиск по данным
             search = st.text_input("🔍 Поиск по ТП или городу", "")
             if search:
-                mask = df['tp_id'].str.contains(search, case=False, na=False) | df['city'].str.contains(search, case=False, na=False)
+                mask = pd.Series(False, index=df.index)
+                if 'tp_id' in df.columns:
+                    mask = mask | df['tp_id'].str.contains(search, case=False, na=False)
+                if 'city' in df.columns:
+                    mask = mask | df['city'].str.contains(search, case=False, na=False)
                 df = df[mask]
             
             # Отображение с пагинацией
