@@ -75,19 +75,28 @@ class DataProcessor:
             return {}
     
     def save_data(self):
-        """Сохранение данных в GitHub"""
+        """Сохранение данных в GitHub с пересчетом номеров"""
         if not self.available:
             return False, "❌ GitHub не доступен"
         
         try:
-            # Конвертируем в JSON
+            # Пересчет порядковых номеров
+            data_list = list(self.data.values())
+            for i, record in enumerate(data_list, 1):
+                record['record_number'] = i
+            
+            # Пересобираем словарь
+            self.data = {}
+            for record in data_list:
+                key = f"{record['tp_id']}_{record['visit_date']}_{record['lat']}_{record['lon']}"
+                self.data[key] = record
+            
+            # Сохраняем
             content = json.dumps(self.data, indent=2, ensure_ascii=False)
             content_base64 = base64.b64encode(content.encode("utf-8")).decode("utf-8")
             
-            # Получаем SHA для обновления
             sha = self._get_file_sha()
             
-            # Формируем запрос
             payload = {
                 "message": f"Обновление данных аудиторов от {datetime.now().strftime('%Y-%m-%d %H:%M')}",
                 "content": content_base64,
