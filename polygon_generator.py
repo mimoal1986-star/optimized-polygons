@@ -1,5 +1,5 @@
 import numpy as np
-from shapely.geometry import Point, Polygon, MultiPoint
+hull = multi_point.convex_hull
 import simplekml
 import json
 import os
