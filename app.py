@@ -100,20 +100,13 @@ with st.sidebar:
     # Действия с данными
     st.header("⚙️ Действия")
     
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("🔄 Обновить", type="primary"):
-            st.cache_data.clear()
-            st.rerun()
-    
-    with col2:
-        if st.button("🗑️ Очистить всё", type="secondary"):
-            data_processor.clear_data()
-            if 'file_processed' in st.session_state:
-                del st.session_state.file_processed
-            if 'polygons' in st.session_state:
-                del st.session_state.polygons
-            st.rerun()
+    if st.button("🗑️ Очистить всё", type="secondary"):
+        data_processor.clear_data()
+        if 'file_processed' in st.session_state:
+            del st.session_state.file_processed
+        if 'polygons' in st.session_state:
+            del st.session_state.polygons
+        st.rerun()
     
     # Параметры генерации
     st.markdown("---")
