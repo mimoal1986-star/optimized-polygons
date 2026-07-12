@@ -6,7 +6,7 @@ import streamlit as st
 import numpy as np
 
 class DataProcessor:
-    def __init__(self, data_file='data/auditor_data.json'):
+    def __init__(self, data_file='auditor_data.json'):
         self.data_file = data_file
         self.data = self.load_data()
     
@@ -22,7 +22,6 @@ class DataProcessor:
     
     def save_data(self):
         """Сохранение данных в JSON файл"""
-        os.makedirs(os.path.dirname(self.data_file), exist_ok=True)
         with open(self.data_file, 'w', encoding='utf-8') as f:
             json.dump(self.data, f, ensure_ascii=False, indent=2)
     
@@ -43,26 +42,24 @@ class DataProcessor:
                 return None, f"Отсутствуют колонки: {', '.join(missing_cols)}"
             
             # Векторизированная фильтрация
-            # 1. Удаляем пустые ТП
             df = df[df['ТП'].notna() & (df['ТП'] != '') & (df['ТП'] != 'nan')]
             
-            # 2. Конвертируем координаты в числовой формат (векторизированно)
+            # Конвертируем координаты
             df['lat'] = pd.to_numeric(df['Гео/ш'], errors='coerce')
             df['lon'] = pd.to_numeric(df['Гео/д'], errors='coerce')
             
-            # 3. Удаляем строки с некорректными координатами
+            # Удаляем строки с некорректными координатами
             df = df.dropna(subset=['lat', 'lon'])
             
             if df.empty:
                 return None, "Нет данных с корректными координатами"
             
-            # 4. Векторизированная обработка дат
+            # Обработка дат
             def parse_date(date_val):
                 if pd.isna(date_val):
                     return None
                 try:
                     if isinstance(date_val, str):
-                        # Пробуем разные форматы
                         for fmt in ['%Y-%m-%d', '%d.%m.%Y', '%Y/%m/%d', '%d-%m-%Y']:
                             try:
                                 return pd.to_datetime(date_val, format=fmt).strftime('%Y-%m-%d')
@@ -78,17 +75,11 @@ class DataProcessor:
             if df.empty:
                 return None, "Нет данных с корректными датами"
             
-            # 5. Создание ключа (векторизированно)
+            # Создание ключа на основе ТП и координат
             df['key'] = df['ТП'] + '_' + df['lat'].astype(str) + '_' + df['lon'].astype(str)
             
-            # 6. Формирование данных в виде словаря (векторизированно)
-            # Создаем базовый словарь из колонок
+            # Формирование данных
             new_data = {}
-            
-            # Получаем все колонки для сохранения
-            all_cols = df.columns.tolist()
-            
-            # Векторизированное создание записей
             records = df.to_dict('records')
             
             for record in records:
@@ -123,45 +114,19 @@ class DataProcessor:
             if not new_data:
                 return None, "Не найдено валидных записей"
             
-            # Объединение с существующими данными
+            # Обогащение данных (добавление новых полей, а не замена)
             for key, new_record in new_data.items():
                 if key in self.data:
-                    # Если запись существует - обогащаем новыми полями
                     for field, value in new_record.items():
                         if value and value != '' and value != 'nan':
                             self.data[key][field] = value
                 else:
-                    # Если записи нет - добавляем
                     self.data[key] = new_record
             
-            # Векторизированное удаление дубликатов 
-            if self.data:
-                temp_df = pd.DataFrame(self.data.values())
-                
-                if not temp_df.empty:
-                    # Удаляем дубликаты по ТП + координаты (широта, долгота)
-                    # Оставляем последнюю запись (самую новую по дате)
-                    temp_df['visit_date_dt'] = pd.to_datetime(temp_df['visit_date'])
-                    temp_df = temp_df.sort_values('visit_date_dt', ascending=False)
-                    temp_df = temp_df.drop_duplicates(subset=['tp_id', 'lat', 'lon'], keep='first')
-                    
-                    # Конвертируем обратно в словарь
-                    self.data = {}
-                    for _, row in temp_df.iterrows():
-                        key = f"{row['tp_id']}_{row['lat']}_{row['lon']}"
-                        self.data[key] = row.to_dict()
-                        # Преобразуем numpy типы в Python типы
-                        for k, v in self.data[key].items():
-                            if isinstance(v, (np.int64, np.float64)):
-                                self.data[key][k] = v.item()
-                            elif isinstance(v, pd.Timestamp):
-                                self.data[key][k] = v.strftime('%Y-%m-%d')
-                            elif isinstance(v, (np.bool_)):
-                                self.data[key][k] = bool(v)
-            
+            # Автоматическое сохранение после загрузки
             self.save_data()
             
-            return len(new_data), f"Успешно загружено {len(new_data)} новых записей"
+            return len(new_data), f"Успешно загружено {len(new_data)} записей"
             
         except Exception as e:
             return None, f"Ошибка при обработке файла: {str(e)}"
