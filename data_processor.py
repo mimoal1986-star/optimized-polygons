@@ -160,9 +160,9 @@ class DataProcessor:
             
             if df.empty:
                 return None, "Нет данных с корректными датами"
-            
-            # Ключ = ТП + координаты
-            df['key'] = df['ТП'] + '_' + df['lat'].astype(str) + '_' + df['lon'].astype(str)
+
+            # 4. Ключ = ТП + дата + координаты (ПОСЛЕ создания всех полей)
+            df['key'] = df['ТП'] + '_' + df['visit_date'] + '_' + df['lat'].astype(str) + '_' + df['lon'].astype(str)
             
             # Формирование данных
             new_data = {}
