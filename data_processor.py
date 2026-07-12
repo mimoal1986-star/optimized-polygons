@@ -3,6 +3,7 @@ import json
 import os
 from datetime import datetime
 import streamlit as st
+import numpy as np
 
 class DataProcessor:
     def __init__(self, data_file='data/auditor_data.json'):
@@ -26,9 +27,14 @@ class DataProcessor:
             json.dump(self.data, f, ensure_ascii=False, indent=2)
     
     def process_uploaded_file(self, uploaded_file):
-        """Обработка загруженного Excel файла"""
+        """Обработка загруженного Excel файла с векторизированными операциями"""
         try:
-            df = pd.read_excel(uploaded_file)
+            # Чтение файла с оптимизацией
+            df = pd.read_excel(
+                uploaded_file,
+                dtype=str,
+                engine='openpyxl'
+            )
             
             # Проверка наличия необходимых колонок
             required_cols = ['ТП', 'Дата визита', 'Гео/ш', 'Гео/д']
@@ -36,91 +42,111 @@ class DataProcessor:
             if missing_cols:
                 return None, f"Отсутствуют колонки: {', '.join(missing_cols)}"
             
-            # Извлечение данных
-            new_data = {}
-            for _, row in df.iterrows():
-                tp_id = str(row.get('ТП', ''))
-                if pd.isna(tp_id) or tp_id == '' or tp_id == 'nan':
-                    continue
-                
-                # Проверка координат
-                lat = row.get('Гео/ш')
-                lon = row.get('Гео/д')
-                if pd.isna(lat) or pd.isna(lon):
-                    continue
-                
-                # Проверка, что координаты - числа
+            # Векторизированная фильтрация
+            # 1. Удаляем пустые ТП
+            df = df[df['ТП'].notna() & (df['ТП'] != '') & (df['ТП'] != 'nan')]
+            
+            # 2. Конвертируем координаты в числовой формат (векторизированно)
+            df['lat'] = pd.to_numeric(df['Гео/ш'], errors='coerce')
+            df['lon'] = pd.to_numeric(df['Гео/д'], errors='coerce')
+            
+            # 3. Удаляем строки с некорректными координатами
+            df = df.dropna(subset=['lat', 'lon'])
+            
+            if df.empty:
+                return None, "Нет данных с корректными координатами"
+            
+            # 4. Векторизированная обработка дат
+            def parse_date(date_val):
+                if pd.isna(date_val):
+                    return None
                 try:
-                    lat = float(lat)
-                    lon = float(lon)
-                except (ValueError, TypeError):
-                    continue
+                    if isinstance(date_val, str):
+                        # Пробуем разные форматы
+                        for fmt in ['%Y-%m-%d', '%d.%m.%Y', '%Y/%m/%d', '%d-%m-%Y']:
+                            try:
+                                return pd.to_datetime(date_val, format=fmt).strftime('%Y-%m-%d')
+                            except:
+                                continue
+                    return pd.to_datetime(date_val).strftime('%Y-%m-%d')
+                except:
+                    return None
+            
+            df['visit_date'] = df['Дата визита'].apply(parse_date)
+            df = df.dropna(subset=['visit_date'])
+            
+            if df.empty:
+                return None, "Нет данных с корректными датами"
+            
+            # 5. Создание ключа (векторизированно)
+            df['key'] = df['ТП'] + '_' + df['visit_date']
+            
+            # 6. Формирование данных в виде словаря (векторизированно)
+            # Создаем базовый словарь из колонок
+            new_data = {}
+            
+            # Получаем все колонки для сохранения
+            all_cols = df.columns.tolist()
+            
+            # Векторизированное создание записей
+            records = df.to_dict('records')
+            
+            for record in records:
+                key = record['key']
+                tp_id = str(record['ТП'])
                 
-                # Создание ключа для уникальности (ТП + дата)
-                visit_date = row.get('Дата визита')
-                if pd.isna(visit_date):
-                    continue
-                    
-                if isinstance(visit_date, pd.Timestamp):
-                    visit_date = visit_date.strftime('%Y-%m-%d')
-                elif isinstance(visit_date, datetime):
-                    visit_date = visit_date.strftime('%Y-%m-%d')
-                elif isinstance(visit_date, str):
-                    # Попытка парсинга даты из строки
-                    try:
-                        date_obj = pd.to_datetime(visit_date)
-                        visit_date = date_obj.strftime('%Y-%m-%d')
-                    except:
-                        visit_date = str(visit_date)
-                else:
-                    visit_date = str(visit_date)
-                
-                key = f"{tp_id}_{visit_date}"
-                
-                # Собираем все данные
                 new_data[key] = {
                     'tp_id': tp_id,
-                    'client_name': str(row.get('Имя клиента', '')) if not pd.isna(row.get('Имя клиента', '')) else '',
-                    'wave_id': str(row.get('ID волны', '')) if not pd.isna(row.get('ID волны', '')) else '',
-                    'wave_name': str(row.get('Название волны', '')) if not pd.isna(row.get('Название волны', '')) else '',
-                    'region': str(row.get('Регион', '')) if not pd.isna(row.get('Регион', '')) else '',
-                    'city': str(row.get('Город', '')) if not pd.isna(row.get('Город', '')) else '',
-                    'asm': str(row.get('АСМ', '')) if not pd.isna(row.get('АСМ', '')) else '',
-                    'em': str(row.get('ЭМ', '')) if not pd.isna(row.get('ЭМ', '')) else '',
-                    'auditor': str(row.get('ТП', '')) if not pd.isna(row.get('ТП', '')) else '',
-                    'order_id': str(row.get('ID заказа', '')) if not pd.isna(row.get('ID заказа', '')) else '',
-                    'status': str(row.get('Статус', '')) if not pd.isna(row.get('Статус', '')) else '',
-                    'visit_date': visit_date,
-                    'request_date': str(row.get('Дата назначения запроса', '')) if not pd.isna(row.get('Дата назначения запроса', '')) else '',
-                    'rp': str(row.get('РП', '')) if not pd.isna(row.get('РП', '')) else '',
-                    'om': str(row.get('ОМ', '')) if not pd.isna(row.get('ОМ', '')) else '',
-                    'branch_id': str(row.get('ID филиала', '')) if not pd.isna(row.get('ID филиала', '')) else '',
-                    'branch_name': str(row.get('Полное название филиала', '')) if not pd.isna(row.get('Полное название филиала', '')) else '',
-                    'address': str(row.get('Адрес (город, адрес)', '')) if not pd.isna(row.get('Адрес (город, адрес)', '')) else '',
-                    'lat': lat,
-                    'lon': lon,
-                    'survey_id': str(row.get('ID обзора', '')) if not pd.isna(row.get('ID обзора', '')) else '',
-                    'project_code': str(row.get('код проекта', '')) if not pd.isna(row.get('код проекта', '')) else ''
+                    'client_name': str(record.get('Имя клиента', '')) if pd.notna(record.get('Имя клиента', '')) else '',
+                    'wave_id': str(record.get('ID волны', '')) if pd.notna(record.get('ID волны', '')) else '',
+                    'wave_name': str(record.get('Название волны', '')) if pd.notna(record.get('Название волны', '')) else '',
+                    'region': str(record.get('Регион', '')) if pd.notna(record.get('Регион', '')) else '',
+                    'city': str(record.get('Город', '')) if pd.notna(record.get('Город', '')) else '',
+                    'asm': str(record.get('АСМ', '')) if pd.notna(record.get('АСМ', '')) else '',
+                    'em': str(record.get('ЭМ', '')) if pd.notna(record.get('ЭМ', '')) else '',
+                    'auditor': tp_id,
+                    'order_id': str(record.get('ID заказа', '')) if pd.notna(record.get('ID заказа', '')) else '',
+                    'status': str(record.get('Статус', '')) if pd.notna(record.get('Статус', '')) else '',
+                    'visit_date': record['visit_date'],
+                    'request_date': str(record.get('Дата назначения запроса', '')) if pd.notna(record.get('Дата назначения запроса', '')) else '',
+                    'rp': str(record.get('РП', '')) if pd.notna(record.get('РП', '')) else '',
+                    'om': str(record.get('ОМ', '')) if pd.notna(record.get('ОМ', '')) else '',
+                    'branch_id': str(record.get('ID филиала', '')) if pd.notna(record.get('ID филиала', '')) else '',
+                    'branch_name': str(record.get('Полное название филиала', '')) if pd.notna(record.get('Полное название филиала', '')) else '',
+                    'address': str(record.get('Адрес (город, адрес)', '')) if pd.notna(record.get('Адрес (город, адрес)', '')) else '',
+                    'lat': float(record['lat']),
+                    'lon': float(record['lon']),
+                    'survey_id': str(record.get('ID обзора', '')) if pd.notna(record.get('ID обзора', '')) else '',
+                    'project_code': str(record.get('код проекта', '')) if pd.notna(record.get('код проекта', '')) else ''
                 }
             
             if not new_data:
-                return None, "Не найдено валидных записей с координатами"
+                return None, "Не найдено валидных записей"
             
-            # Объединение с существующими данными (удаление дубликатов)
+            # Объединение с существующими данными
             self.data.update(new_data)
             
-            # Удаление дубликатов (оставляем последнюю запись)
-            unique_data = {}
-            for key, value in self.data.items():
-                # Если ключ уже существует, обновляем
-                if key not in unique_data:
-                    unique_data[key] = value
-                else:
-                    # Если дубликат, обновляем датой
-                    if value['visit_date'] > unique_data[key]['visit_date']:
-                        unique_data[key] = value
+            # Векторизированное удаление дубликатов
+            # Создаем временный DataFrame для удаления дубликатов
+            temp_df = pd.DataFrame(self.data.values())
             
-            self.data = unique_data
+            # Оставляем только последнюю запись по дате для каждого ключа
+            temp_df['visit_date'] = pd.to_datetime(temp_df['visit_date'])
+            temp_df = temp_df.sort_values('visit_date', ascending=False)
+            temp_df = temp_df.drop_duplicates(subset=['tp_id', 'visit_date'], keep='first')
+            
+            # Конвертируем обратно в словарь
+            self.data = {}
+            for _, row in temp_df.iterrows():
+                key = f"{row['tp_id']}_{row['visit_date'].strftime('%Y-%m-%d')}"
+                self.data[key] = row.to_dict()
+                # Преобразуем numpy типы в Python типы
+                for k, v in self.data[key].items():
+                    if isinstance(v, (np.int64, np.float64)):
+                        self.data[key][k] = v.item()
+                    elif isinstance(v, pd.Timestamp):
+                        self.data[key][k] = v.strftime('%Y-%m-%d')
+            
             self.save_data()
             
             return len(new_data), f"Успешно загружено {len(new_data)} новых записей"
