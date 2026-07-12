@@ -1,5 +1,5 @@
 import numpy as np
-hull = multi_point.convex_hull
+from shapely.geometry import Point, Polygon, MultiPoint
 import simplekml
 import json
 import os
@@ -11,7 +11,6 @@ class PolygonGenerator:
         self.data_processor = data_processor
     
     def create_polygon_for_auditor(self, auditor_id, buffer_km=0.5):
-        """Создание полигона для аудитора на основе его точек"""
         records = self.data_processor.get_data_by_auditor(auditor_id)
         
         if len(records) < 3:
@@ -32,7 +31,7 @@ class PolygonGenerator:
         
         try:
             multi_point = MultiPoint(points)
-            hull = multi_point.convex_hull
+            hull = multi_point.convex_hull  # ← Здесь используется метод
             
             if hull.geom_type != 'Polygon':
                 return None, "Точки образуют линию, полигон не может быть создан"
