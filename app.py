@@ -7,7 +7,6 @@ import plotly.graph_objects as go
 from datetime import datetime
 import json
 import os
-import time
 
 # Настройка страницы
 st.set_page_config(
@@ -37,7 +36,7 @@ st.markdown("---")
 with st.sidebar:
     st.header("📊 Управление данными")
     
-    # Загрузка файла с прогресс-баром
+    # Загрузка файла с защитой от повторной обработки
     uploaded_file = st.file_uploader(
         "Загрузите Excel файл с данными",
         type=['xlsx', 'xls'],
@@ -45,39 +44,41 @@ with st.sidebar:
     )
     
     if uploaded_file is not None:
-        # Прогресс-бар
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        
-        try:
-            # Имитация прогресса
-            status_text.text("Чтение файла...")
-            progress_bar.progress(20)
+        # Проверка - не обработан ли уже этот файл
+        if ('file_processed' not in st.session_state or 
+            st.session_state.file_processed != uploaded_file.name):
             
-            # Обработка файла
-            count, message = data_processor.process_uploaded_file(uploaded_file)
+            progress_bar = st.progress(0)
+            status_text = st.empty()
             
-            progress_bar.progress(80)
-            status_text.text("Сохранение данных...")
-            
-            if count:
-                progress_bar.progress(100)
-                status_text.text("✅ Готово!")
-                st.success(message)
-                # Убираем st.rerun() и time.sleep()
-            else:
-                progress_bar.progress(100)
-                status_text.text("❌ Ошибка!")
-                st.error(message)
-            
-            # Убираем прогресс-бар
-            progress_bar.empty()
-            status_text.empty()
-            
-        except Exception as e:
-            progress_bar.empty()
-            status_text.empty()
-            st.error(f"Ошибка при загрузке: {str(e)}")
+            try:
+                status_text.text("Чтение файла...")
+                progress_bar.progress(20)
+                
+                count, message = data_processor.process_uploaded_file(uploaded_file)
+                
+                progress_bar.progress(80)
+                status_text.text("Сохранение данных...")
+                
+                if count:
+                    progress_bar.progress(100)
+                    status_text.text("✅ Готово!")
+                    st.success(message)
+                    st.session_state.file_processed = uploaded_file.name
+                else:
+                    progress_bar.progress(100)
+                    status_text.text("❌ Ошибка!")
+                    st.error(message)
+                
+                progress_bar.empty()
+                status_text.empty()
+                
+            except Exception as e:
+                progress_bar.empty()
+                status_text.empty()
+                st.error(f"Ошибка при загрузке: {str(e)}")
+        else:
+            st.success(f"✅ Файл '{uploaded_file.name}' уже загружен")
     
     st.markdown("---")
     
@@ -117,7 +118,8 @@ with st.sidebar:
                 del st.session_state.file_processed
             if 'polygons' in st.session_state:
                 del st.session_state.polygons
-            st.rerun()
+            # Убираем st.rerun() чтобы избежать цикла
+            st.success("✅ Данные очищены")
     
     # Параметры генерации
     st.markdown("---")
@@ -146,35 +148,29 @@ tab1, tab2, tab3, tab4 = st.tabs(
 with tab1:
     st.header("Просмотр данных")
     
-    # Фильтр по аудитору
     auditors = data_processor.get_auditors()
     selected_auditor = st.selectbox(
         "Выберите аудитора",
         ["Все"] + auditors if auditors else ["Все"]
     )
     
-    # Получение данных
     if selected_auditor == "Все":
         data_list = list(data_processor.data.values())
     else:
         data_list = data_processor.get_data_by_auditor(selected_auditor)
     
     if data_list:
-        # Конвертация в DataFrame
         df = pd.DataFrame(data_list)
         
-        # Фильтрация валидных координат
         if 'lat' in df.columns and 'lon' in df.columns:
             df['lat'] = pd.to_numeric(df['lat'], errors='coerce')
             df['lon'] = pd.to_numeric(df['lon'], errors='coerce')
             df = df.dropna(subset=['lat', 'lon'])
         
         if not df.empty:
-            # Выбираем колонки для отображения
             display_cols = ['tp_id', 'auditor', 'city', 'visit_date', 'lat', 'lon']
             display_cols = [col for col in display_cols if col in df.columns]
             
-            # Поиск по данным
             search = st.text_input("🔍 Поиск по ТП или городу", "")
             if search:
                 mask = pd.Series(False, index=df.index)
@@ -184,7 +180,6 @@ with tab1:
                     mask = mask | df['city'].str.contains(search, case=False, na=False)
                 df = df[mask]
             
-            # Отображение с пагинацией
             page_size = 50
             total_records = len(df)
             total_pages = max(1, (total_records + page_size - 1) // page_size)
@@ -218,10 +213,8 @@ with tab2:
     st.header("Визуализация на карте")
     
     if data_list:
-        # Подготовка данных для карты
         df_map = pd.DataFrame(data_list)
         
-        # Фильтр по аудитору
         selected_auditor_map = st.selectbox(
             "Выберите аудитора для карты",
             ["Все"] + auditors if auditors else ["Все"],
@@ -231,7 +224,6 @@ with tab2:
         if selected_auditor_map != "Все":
             df_map = df_map[df_map['auditor'] == selected_auditor_map]
         
-        # Проверка координат
         if not df_map.empty and 'lat' in df_map.columns and 'lon' in df_map.columns:
             df_map['lat'] = pd.to_numeric(df_map['lat'], errors='coerce')
             df_map['lon'] = pd.to_numeric(df_map['lon'], errors='coerce')
@@ -239,7 +231,6 @@ with tab2:
         
         if not df_map.empty:
             try:
-                # Создание карты
                 fig = px.scatter_mapbox(
                     df_map,
                     lat='lat',
@@ -272,13 +263,11 @@ with tab2:
 with tab3:
     st.header("Генерация полигонов")
     
-    # Проверка наличия данных
     if not data_processor.data:
         st.warning("Нет данных для генерации полигонов. Сначала загрузите файл с данными.")
     else:
         if st.button("🚀 Создать полигоны для всех аудиторов", type="primary"):
             with st.spinner("Генерация полигонов..."):
-                # Показываем прогресс
                 status_text = st.empty()
                 status_text.info("Начинаем генерацию полигонов...")
                 
@@ -292,7 +281,6 @@ with tab3:
                 if polygons:
                     st.success(f"✅ Создано {len(polygons)} полигонов")
                     
-                    # Информация о полигонах
                     st.subheader("Результаты")
                     
                     polygons_df = pd.DataFrame([
@@ -305,10 +293,8 @@ with tab3:
                     ])
                     st.dataframe(polygons_df, use_container_width=True)
                     
-                    # Сохранение в сессию
                     st.session_state['polygons'] = polygons
                     
-                    # Визуализация полигонов
                     if len(polygons) > 0:
                         st.subheader("Визуализация полигонов")
                         
@@ -356,7 +342,6 @@ with tab3:
                         for error in errors:
                             st.code(error)
     
-    # Отображение сохраненных полигонов
     if 'polygons' in st.session_state and st.session_state['polygons']:
         st.markdown("---")
         st.subheader("💾 Сохраненные полигоны")
@@ -370,7 +355,6 @@ with tab4:
     st.header("📤 Экспорт данных")
     
     if 'polygons' in st.session_state and st.session_state['polygons']:
-        # Экспорт в KML
         st.subheader("🗺️ Экспорт в KML")
         
         if st.button("📥 Создать KML"):
@@ -388,9 +372,8 @@ with tab4:
                             mime="application/vnd.google-earth.kml+xml"
                         )
                 else:
-                    st.error(f"Ошибка при создании KML файла")
+                    st.error("Ошибка при создании KML файла")
         
-        # Экспорт в GeoJSON
         st.subheader("🌐 Экспорт в GeoJSON")
         
         if st.button("📥 Создать GeoJSON"):
@@ -410,7 +393,6 @@ with tab4:
                 else:
                     st.error("Ошибка при создании GeoJSON файла")
         
-        # Экспорт данных в CSV
         st.subheader("📊 Экспорт данных в CSV")
         
         if st.button("📥 Создать CSV"):
