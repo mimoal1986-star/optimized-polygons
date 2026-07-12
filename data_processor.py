@@ -62,8 +62,21 @@ class DataProcessor:
             if response.status_code == 200:
                 content = response.json()
                 file_content = base64.b64decode(content["content"]).decode("utf-8")
-                return json.loads(file_content)
-            return {}
+                
+                # Проверка на пустой файл
+                if not file_content or file_content.strip() == '':
+                    print("⚠️ Файл пустой, возвращаем пустой словарь")
+                    return {}
+                
+                # Проверка на валидный JSON
+                try:
+                    return json.loads(file_content)
+                except json.JSONDecodeError as e:
+                    print(f"❌ Ошибка парсинга JSON: {e}")
+                    print(f"📄 Содержимое файла: {file_content[:100]}...")
+                    return {}
+            else:
+                return {}
                 
         except Exception as e:
             st.warning(f"Не удалось загрузить данные: {e}")
