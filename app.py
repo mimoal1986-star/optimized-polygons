@@ -24,8 +24,7 @@ def init_processors():
 
 try:
     data_processor, polygon_generator = init_processors()
-    # Принудительная загрузка данных из JSON при старте
-    data_processor.data = data_processor.load_data()
+    # Данные уже загружены в __init__, ничего дополнительно не делаем
 except Exception as e:
     st.error(f"Ошибка инициализации: {str(e)}")
     st.stop()
@@ -108,10 +107,8 @@ with st.sidebar:
         if st.button("💾 Сохранить данные", type="primary"):
             success, message = data_processor.save_data()
             if success:
-                # После сохранения перезагружаем данные из JSON
                 data_processor.data = data_processor.load_data()
                 st.success(message)
-                st.rerun()  # Перезагружаем страницу для обновления статистики
             else:
                 st.error(message)
     
