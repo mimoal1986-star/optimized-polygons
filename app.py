@@ -140,8 +140,8 @@ with st.sidebar:
     )
 
 # Основная область
-tab1, tab2, tab3, tab4 = st.tabs(
-    ["📋 Данные", "🗺️ Карта", "📐 Полигоны", "📥 Экспорт"]
+tab1, tab2, tab3 = st.tabs(
+    ["📋 Данные", "📐 Полигоны", "📥 Экспорт"]
 )
 
 with tab1:
@@ -209,57 +209,6 @@ with tab1:
         st.info("Нет данных для отображения. Загрузите файл с данными.")
 
 with tab2:
-    st.header("Визуализация на карте")
-    
-    if data_list:
-        df_map = pd.DataFrame(data_list)
-        
-        selected_auditor_map = st.selectbox(
-            "Выберите аудитора для карты",
-            ["Все"] + auditors if auditors else ["Все"],
-            key="map_auditor"
-        )
-        
-        if selected_auditor_map != "Все":
-            df_map = df_map[df_map['auditor'] == selected_auditor_map]
-        
-        if not df_map.empty and 'lat' in df_map.columns and 'lon' in df_map.columns:
-            df_map['lat'] = pd.to_numeric(df_map['lat'], errors='coerce')
-            df_map['lon'] = pd.to_numeric(df_map['lon'], errors='coerce')
-            df_map = df_map.dropna(subset=['lat', 'lon'])
-        
-        if not df_map.empty:
-            try:
-                fig = px.scatter_mapbox(
-                    df_map,
-                    lat='lat',
-                    lon='lon',
-                    color='auditor' if 'auditor' in df_map.columns else None,
-                    hover_name='tp_id' if 'tp_id' in df_map.columns else None,
-                    hover_data={
-                        'city': True,
-                        'visit_date': True,
-                        'address': True
-                    } if 'city' in df_map.columns else None,
-                    zoom=10,
-                    height=600,
-                    title=f"Точки посещений (всего: {len(df_map)})"
-                )
-                
-                fig.update_layout(
-                    mapbox_style="open-street-map",
-                    margin={"r": 0, "t": 30, "l": 0, "b": 0}
-                )
-                
-                st.plotly_chart(fig, use_container_width=True)
-            except Exception as e:
-                st.error(f"Ошибка при создании карты: {str(e)}")
-        else:
-            st.warning("Нет данных с координатами для отображения на карте")
-    else:
-        st.info("Нет данных для отображения")
-
-with tab3:
     st.header("Генерация полигонов")
     
     if not data_processor.data:
@@ -350,7 +299,7 @@ with tab3:
                 st.write("Первые 5 точек полигона:")
                 st.code(p['coordinates'][:5])
 
-with tab4:
+with tab3:
     st.header("📤 Экспорт данных")
     
     if 'polygons' in st.session_state and st.session_state['polygons']:
