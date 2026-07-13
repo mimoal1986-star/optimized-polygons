@@ -64,9 +64,9 @@ class PolygonGenerator:
             
             polystyle = simplekml.Style()
             polystyle.id = 'polygonStyle'
-            polystyle.polystyle.color = simplekml.Color.hex('7f00ff00')
+            polystyle.polystyle.color = '7f00ff00'
             polystyle.polystyle.outline = 1
-            polystyle.linestyle.color = simplekml.Color.hex('ff00ff00')
+            polystyle.linestyle.color = 'ff00ff00'
             polystyle.linestyle.width = 2
             
             kml.document.add_style(polystyle)
