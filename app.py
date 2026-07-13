@@ -239,7 +239,29 @@ with tab2:
                         }
                         for p in polygons
                     ])
-                    st.dataframe(polygons_df, use_container_width=True)
+                    st.dataframe(polygons_df, use_container_width=True, hide_index=True)
+                    
+                    # Кнопки скачивания KML для каждого аудитора
+                    st.markdown("### 📥 Скачать KML по аудиторам")
+                    
+                    for p in polygons:
+                        col1, col2 = st.columns([3, 1])
+                        with col1:
+                            st.write(f"**{p['auditor_id']}** ({p['points_count']} точек, {p.get('area_km2', 0):.1f} км²)")
+                        with col2:
+                            if st.button(f"📥 Скачать", key=f"kml_{p['auditor_id']}"):
+                                kml_file = polygon_generator.generate_kml([p])
+                                if kml_file and os.path.exists(kml_file):
+                                    with open(kml_file, 'rb') as f:
+                                        st.download_button(
+                                            label=f"Скачать KML",
+                                            data=f,
+                                            file_name=f"{p['auditor_id']}_{datetime.now().strftime('%Y%m%d')}.kml",
+                                            mime="application/vnd.google-earth.kml+xml",
+                                            key=f"download_{p['auditor_id']}"
+                                        )
+                                else:
+                                    st.error(f"Ошибка создания KML для {p['auditor_id']}")
                     
                     st.session_state['polygons'] = polygons
                     
