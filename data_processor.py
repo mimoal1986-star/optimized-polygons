@@ -63,20 +63,16 @@ class DataProcessor:
                 content = response.json()
                 file_content = base64.b64decode(content["content"]).decode("utf-8")
                 
-                # Проверка на пустой файл
                 if not file_content or file_content.strip() == '':
                     print("⚠️ Файл пустой, возвращаем пустой словарь")
                     return {}
                 
-                # Проверка на валидный JSON
                 try:
                     return json.loads(file_content)
                 except json.JSONDecodeError as e:
                     print(f"❌ Ошибка парсинга JSON: {e}")
-                    print(f"📄 Содержимое файла: {file_content[:100]}...")
                     return {}
-            else:
-                return {}
+            return {}
                 
         except Exception as e:
             st.warning(f"Не удалось загрузить данные: {e}")
@@ -88,19 +84,16 @@ class DataProcessor:
             return False, "❌ GitHub не доступен"
         
         try:
-            # Пересчет порядковых номеров
             data_list = list(self.data.values())
             for i, record in enumerate(data_list, 1):
                 record['record_number'] = i
                 record['record_updated'] = datetime.now().isoformat()
             
-            # Пересобираем словарь
             self.data = {}
             for record in data_list:
                 key = f"{record['tp_id']}_{record['visit_date']}_{record['lat']}_{record['lon']}"
                 self.data[key] = record
             
-            # Сохраняем
             content = json.dumps(self.data, indent=2, ensure_ascii=False)
             content_base64 = base64.b64encode(content.encode("utf-8")).decode("utf-8")
             
@@ -120,6 +113,17 @@ class DataProcessor:
                 json=payload
             )
             
+            if response.status_code == 409:
+                print("⚠️ Конфликт при сохранении, пробуем обновить SHA...")
+                new_sha = self._get_file_sha()
+                if new_sha:
+                    payload["sha"] = new_sha
+                    response = requests.put(
+                        self.api_url,
+                        headers=self.headers,
+                        json=payload
+                    )
+            
             if response.status_code in [200, 201]:
                 return True, f"✅ Данные сохранены в GitHub ({len(self.data)} записей)"
             else:
@@ -130,7 +134,6 @@ class DataProcessor:
     
     def process_uploaded_file(self, uploaded_file):
         """Обработка загруженного Excel файла"""
-        # Проверка на пустой файл
         if uploaded_file is None:
             return None, "Файл не выбран"
         
@@ -142,10 +145,8 @@ class DataProcessor:
             if missing_cols:
                 return None, f"Отсутствуют колонки: {', '.join(missing_cols)}"
             
-            # Фильтрация
             df = df[df['ТП'].notna() & (df['ТП'] != '') & (df['ТП'] != 'nan')]
             
-            # Координаты
             df['lat'] = pd.to_numeric(df['Гео/ш'], errors='coerce')
             df['lon'] = pd.to_numeric(df['Гео/д'], errors='coerce')
             df = df.dropna(subset=['lat', 'lon'])
@@ -153,7 +154,6 @@ class DataProcessor:
             if df.empty:
                 return None, "Нет данных с корректными координатами"
             
-            # Даты (оптимизировано)
             df['visit_date'] = pd.to_datetime(
                 df['Дата визита'], 
                 errors='coerce'
@@ -163,7 +163,6 @@ class DataProcessor:
             if df.empty:
                 return None, "Нет данных с корректными датами"
             
-            # Ключ = ТП + дата + координаты
             df['key'] = (
                 df['ТП'] + '_' + 
                 df['visit_date'] + '_' + 
@@ -171,10 +170,8 @@ class DataProcessor:
                 df['lon'].astype(str)
             )
             
-            # Удаление дубликатов внутри файла
             df = df.drop_duplicates(subset=['key'], keep='first')
             
-            # Формирование данных
             new_data = {}
             records = df.to_dict('records')
             
@@ -198,13 +195,11 @@ class DataProcessor:
             if not new_data:
                 return None, "Не найдено валидных записей"
             
-            # Обогащение данных (оптимизировано)
             added_count = 0
             updated_count = 0
             
             for key, new_record in new_data.items():
                 if key in self.data:
-                    # Обновляем только изменившиеся поля
                     for field, value in new_record.items():
                         if value and value != '' and value != 'nan':
                             self.data[key][field] = value
