@@ -307,11 +307,15 @@ with tab3:
                     st.error("Ошибка при создании GeoJSON файла")
         
         st.subheader("📊 Экспорт данных в CSV")
-        
+                
         if st.button("📥 Создать CSV"):
             with st.spinner("Создание CSV файла..."):
                 df_export = pd.DataFrame(list(data_processor.data.values()))
                 if not df_export.empty:
+                    # Меняем местами lat и lon
+                    if 'lat' in df_export.columns and 'lon' in df_export.columns:
+                        df_export['lat'], df_export['lon'] = df_export['lon'], df_export['lat']
+                    
                     csv = df_export.to_csv(index=False)
                     
                     st.download_button(
