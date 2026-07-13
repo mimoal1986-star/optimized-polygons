@@ -44,7 +44,6 @@ with st.sidebar:
     )
     
     if uploaded_file is not None:
-        # Проверка - не обработан ли уже этот файл
         if ('file_processed' not in st.session_state or 
             st.session_state.file_processed != uploaded_file.name):
             
@@ -216,91 +215,42 @@ with tab2:
     else:
         if st.button("🚀 Создать полигоны для всех аудиторов", type="primary"):
             with st.spinner("Генерация полигонов..."):
-                status_text = st.empty()
-                status_text.info("Начинаем генерацию полигонов...")
-                
                 polygons, errors = polygon_generator.create_polygons_for_all_auditors(
                     min_points=min_points,
                     buffer_km=buffer_km
                 )
-                
-                status_text.empty()
                 
                 if polygons:
                     st.success(f"✅ Создано {len(polygons)} полигонов")
                     
                     st.subheader("Результаты")
                     
-                    polygons_df = pd.DataFrame([
-                        {
-                            'Аудитор': p['auditor_id'],
-                            'Количество точек': p['points_count'],
-                            'Площадь (км²)': f"{p.get('area_km2', 0):.1f}"
-                        }
-                        for p in polygons
-                    ])
-                    st.dataframe(polygons_df, use_container_width=True, hide_index=True)
-                    
-                    # Кнопки скачивания KML для каждого аудитора
-                    st.markdown("### 📥 Скачать KML по аудиторам")
-                    
-                    for p in polygons:
-                        col1, col2 = st.columns([3, 1])
+                    # Таблица с кнопкой скачивания в каждой строке
+                    for idx, p in enumerate(polygons):
+                        col1, col2, col3, col4 = st.columns([2, 1.5, 1.5, 1.5])
+                        
                         with col1:
-                            st.write(f"**{p['auditor_id']}** ({p['points_count']} точек, {p.get('area_km2', 0):.1f} км²)")
+                            st.write(p['auditor_id'])
                         with col2:
-                            if st.button(f"📥 Скачать", key=f"kml_{p['auditor_id']}"):
+                            st.write(p['points_count'])
+                        with col3:
+                            st.write(f"{p.get('area_km2', 0):.1f}")
+                        with col4:
+                            if st.button("📥 KML", key=f"kml_{p['auditor_id']}_{idx}"):
                                 kml_file = polygon_generator.generate_kml([p])
                                 if kml_file and os.path.exists(kml_file):
                                     with open(kml_file, 'rb') as f:
                                         st.download_button(
-                                            label=f"Скачать KML",
+                                            label="Скачать",
                                             data=f,
                                             file_name=f"{p['auditor_id']}_{datetime.now().strftime('%Y%m%d')}.kml",
                                             mime="application/vnd.google-earth.kml+xml",
-                                            key=f"download_{p['auditor_id']}"
+                                            key=f"download_{p['auditor_id']}_{idx}"
                                         )
                                 else:
                                     st.error(f"Ошибка создания KML для {p['auditor_id']}")
                     
                     st.session_state['polygons'] = polygons
-                    
-                    if len(polygons) > 0:
-                        st.subheader("Визуализация полигонов")
-                        
-                        all_coords = []
-                        for p in polygons:
-                            for lon, lat in p['coordinates']:
-                                all_coords.append({
-                                    'auditor': p['auditor_id'],
-                                    'lon': lon,
-                                    'lat': lat,
-                                    'type': 'polygon'
-                                })
-                        
-                        if all_coords:
-                            df_poly = pd.DataFrame(all_coords)
-                            
-                            try:
-                                fig = px.scatter_mapbox(
-                                    df_poly,
-                                    lat='lat',
-                                    lon='lon',
-                                    color='auditor',
-                                    hover_data={'auditor': True},
-                                    zoom=5,
-                                    height=500,
-                                    title="Визуализация полигонов"
-                                )
-                                
-                                fig.update_layout(
-                                    mapbox_style="open-street-map",
-                                    margin={"r": 0, "t": 30, "l": 0, "b": 0}
-                                )
-                                
-                                st.plotly_chart(fig, use_container_width=True)
-                            except Exception as e:
-                                st.error(f"Ошибка при визуализации: {str(e)}")
                     
                     if errors:
                         st.warning("⚠️ Ошибки при создании некоторых полигонов:")
@@ -311,15 +261,6 @@ with tab2:
                     if errors:
                         for error in errors:
                             st.code(error)
-    
-    if 'polygons' in st.session_state and st.session_state['polygons']:
-        st.markdown("---")
-        st.subheader("💾 Сохраненные полигоны")
-        
-        for p in st.session_state['polygons']:
-            with st.expander(f"🔷 {p['auditor_id']} ({p['points_count']} точек, {p.get('area_km2', 0):.1f} км²)"):
-                st.write("Первые 5 точек полигона:")
-                st.code(p['coordinates'][:5])
 
 with tab3:
     st.header("📤 Экспорт данных")
@@ -327,7 +268,7 @@ with tab3:
     if 'polygons' in st.session_state and st.session_state['polygons']:
         st.subheader("🗺️ Экспорт в KML")
         
-        if st.button("📥 Создать KML"):
+        if st.button("📥 Создать общий KML"):
             with st.spinner("Создание KML файла..."):
                 kml_file = polygon_generator.generate_kml(
                     st.session_state['polygons']
@@ -336,7 +277,7 @@ with tab3:
                 if kml_file and os.path.exists(kml_file):
                     with open(kml_file, 'rb') as f:
                         st.download_button(
-                            label="Скачать KML файл",
+                            label="Скачать общий KML файл",
                             data=f,
                             file_name=os.path.basename(kml_file),
                             mime="application/vnd.google-earth.kml+xml"
