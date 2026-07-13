@@ -31,7 +31,7 @@ class PolygonGenerator:
         
         try:
             multi_point = MultiPoint(points)
-            hull = multi_point.convex_hull  # ← ЗДЕСЬ
+            hull = multi_point.convex_hull
             
             if hull.geom_type != 'Polygon':
                 return None, "Точки образуют линию, полигон не может быть создан"
@@ -57,55 +57,43 @@ class PolygonGenerator:
             return None, f"Ошибка при создании полигона: {str(e)}"
     
     def generate_kml(self, polygons_data, city_name=None):
-        """Генерация KML файла с полигонами и точками"""
         try:
             print(f"📝 Начинаем создание KML. Полигонов: {len(polygons_data)}")
             
             kml = simplekml.Kml()
-            print("✅ KML объект создан")
             
-            # Создаем стиль и добавляем в документ
             polystyle = simplekml.Style()
             polystyle.id = 'polygonStyle'
-            polystyle.polystyle.color = simplekml.Color.hex('7f00ff00')  # Полупрозрачный зеленый
+            polystyle.polystyle.color = simplekml.Color.hex('7f00ff00')
             polystyle.polystyle.outline = 1
-            polystyle.linestyle.color = simplekml.Color.hex('ff00ff00')  # Зеленый контур
+            polystyle.linestyle.color = simplekml.Color.hex('ff00ff00')
             polystyle.linestyle.width = 2
             
-            # Добавляем стиль в документ
-            kml.document.add_style(polystyle)  # ← ПРАВИЛЬНЫЙ СПОСОБ
-            print("✅ Стиль добавлен в документ")
+            kml.document.add_style(polystyle)
+            print("✅ Стиль добавлен")
             
             for i, polygon_data in enumerate(polygons_data):
-                print(f"  📍 Обработка полигона {i+1}/{len(polygons_data)}: {polygon_data.get('auditor_id', 'unknown')}")
-                
                 if 'coordinates' not in polygon_data or not polygon_data['coordinates']:
-                    print(f"  ⚠️ Пропускаем: нет координат")
                     continue
                 
                 try:
                     auditor_id = polygon_data['auditor_id']
                     
-                    # Получаем город из данных (первая запись аудитора)
                     auditor_records = self.data_processor.get_data_by_auditor(auditor_id)
                     city_from_data = city_name if city_name else 'Город'
                     if auditor_records and len(auditor_records) > 0:
                         city_from_data = auditor_records[0].get('city', city_from_data)
                     
-                    # Название: 🗺️ Город-Зона-Номер
                     placemark_name = f"🗺️ {city_from_data}-Зона-{i+1}"
                     
-                    # Описание
                     description = f"Аудитор: {auditor_id}\n"
                     description += f"Город: {city_from_data}\n"
                     description += f"Количество точек: {polygon_data.get('points_count', 0)}"
                     
-                    # Создаем Placemark
                     placemark = kml.newpolygon(name=placemark_name)
                     placemark.description = description
-                    placemark.styleUrl = '#polygonStyle'  # ← ССЫЛКА НА СТИЛЬ
+                    placemark.styleUrl = '#polygonStyle'
                     
-                    # Координаты полигона
                     coords = polygon_data['coordinates'].copy()
                     if coords and coords[0] != coords[-1]:
                         coords.append(coords[0])
@@ -113,9 +101,7 @@ class PolygonGenerator:
                     placemark.polygon.outerboundaryis = [
                         (float(lon), float(lat), 0) for lon, lat in coords
                     ]
-                    print(f"  ✅ Полигон {auditor_id} добавлен (точек: {len(coords)})")
                     
-                    # Добавляем точки аудитора
                     for record in auditor_records:
                         if 'lat' in record and 'lon' in record:
                             try:
@@ -131,32 +117,25 @@ class PolygonGenerator:
                                 continue
                     
                 except Exception as e:
-                    print(f"  ❌ Ошибка при добавлении полигона {polygon_data.get('auditor_id', 'unknown')}: {str(e)}")
+                    print(f"  ❌ Ошибка: {str(e)}")
                     continue
             
-            # Сохраняем KML
             filename = f"polygons_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
             if city_name:
                 filename = f"{city_name}_{filename}"
             
-            print(f"📁 Создаем папку data...")
             os.makedirs('data', exist_ok=True)
             
             kml_file = f"data/{filename}.kml"
-            print(f"💾 Сохраняем KML: {kml_file}")
             kml.save(kml_file)
-            print(f"✅ KML сохранен")
             
             if os.path.exists(kml_file):
-                file_size = os.path.getsize(kml_file)
-                print(f"📊 Размер файла: {file_size} байт")
                 return kml_file
             else:
-                print(f"❌ Файл не создался!")
                 return None
             
         except Exception as e:
-            print(f"❌ ОШИБКА при создании KML: {str(e)}")
+            print(f"❌ Ошибка при создании KML: {str(e)}")
             print(traceback.format_exc())
             return None
     
@@ -168,19 +147,13 @@ class PolygonGenerator:
         if not auditors:
             return polygons, ["Нет аудиторов в данных"]
         
-        print(f"📊 Найдено аудиторов: {len(auditors)}")
-        
         for auditor in auditors:
-            print(f"  🔄 Обработка аудитора: {auditor}")
             polygon, error = self.create_polygon_for_auditor(auditor, buffer_km)
             if polygon:
                 polygons.append(polygon)
-                print(f"  ✅ Полигон создан: {auditor} (точек: {polygon['points_count']})")
             else:
                 errors.append(f"{auditor}: {error if error else 'Неизвестная ошибка'}")
-                print(f"  ❌ Ошибка: {error}")
         
-        print(f"📊 Итог: создано {len(polygons)} полигонов, ошибок: {len(errors)}")
         return polygons, errors
     
     def export_to_geojson(self, polygons_data, filename='data/polygons.geojson'):
