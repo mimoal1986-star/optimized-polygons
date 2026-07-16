@@ -250,3 +250,24 @@ class DataProcessor:
         self.data = {}
         success, message = self.save_data()
         return f"Все данные удалены. {message}"
+
+    def get_points_by_city(self, auditor_id):
+        """
+        Группирует точки аудитора по городам
+        Возвращает: {город: [(lon, lat), ...]}
+        """
+        records = self.get_data_by_auditor(auditor_id)
+        
+        cities = {}
+        for record in records:
+            city = record.get('city', 'Неизвестно')
+            if city not in cities:
+                cities[city] = []
+            try:
+                lon = float(record['lon'])
+                lat = float(record['lat'])
+                cities[city].append((lon, lat))
+            except (ValueError, TypeError):
+                continue
+        
+        return cities
