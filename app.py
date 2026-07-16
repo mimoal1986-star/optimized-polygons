@@ -71,10 +71,10 @@ with st.sidebar:
                 status_text.text("📖 Чтение файла...")
                 progress_bar.progress(20)
                 
-                # Проверка наличия колонки "Аудитор"
+                # Проверка наличия колонки "ТП"
                 df_test = pd.read_excel(uploaded_file, nrows=5, engine='openpyxl')
-                if 'Аудитор' not in df_test.columns:
-                    st.error("❌ В файле отсутствует колонка 'Аудитор'")
+                if 'ТП' not in df_test.columns:
+                    st.error("❌ В файле отсутствует колонка 'ТП'")
                     progress_bar.empty()
                     status_text.empty()
                     st.stop()
