@@ -42,7 +42,7 @@ def generate_kml_simple(polygons):
         if coords and coords[0] != coords[-1]:
             coords = coords + [coords[0]]
         
-        coord_str = " ".join([f"{lon},{lat},0" for lon, lat in coords])
+        coord_str = " ".join([f"{lat},{lon},0" for lon, lat in coords])
         
         kml = kml.replace('</Document>', f'''
 <Placemark>
