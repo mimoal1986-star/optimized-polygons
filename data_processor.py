@@ -247,39 +247,40 @@ class DataProcessor:
         return stats
 
     def get_statistics_from_json(self):
-    """Загрузка статистики напрямую из JSON файла"""
-    data = self.load_data()
-    if not data:
+    
+        """Загрузка статистики напрямую из JSON файла"""
+        data = self.load_data()
+        if not data:
+            return {
+                'total_visits': 0,
+                'total_auditors': 0,
+                'cities': 0,
+                'regions': 0
+            }
+        
+        auditors = set()
+        cities = set()
+        regions = set()
+        
+        for record in data.values():
+            auditor = record.get('auditor', '')
+            if auditor and auditor != 'nan':
+                auditors.add(auditor)
+            
+            city = record.get('city', '')
+            if city and city != 'nan':
+                cities.add(city)
+            
+            region = record.get('region', '')
+            if region and region != 'nan':
+                regions.add(region)
+        
         return {
-            'total_visits': 0,
-            'total_auditors': 0,
-            'cities': 0,
-            'regions': 0
+            'total_visits': len(data),
+            'total_auditors': len(auditors),
+            'cities': len(cities),
+            'regions': len(regions)
         }
-    
-    auditors = set()
-    cities = set()
-    regions = set()
-    
-    for record in data.values():
-        auditor = record.get('auditor', '')
-        if auditor and auditor != 'nan':
-            auditors.add(auditor)
-        
-        city = record.get('city', '')
-        if city and city != 'nan':
-            cities.add(city)
-        
-        region = record.get('region', '')
-        if region and region != 'nan':
-            regions.add(region)
-    
-    return {
-        'total_visits': len(data),
-        'total_auditors': len(auditors),
-        'cities': len(cities),
-        'regions': len(regions)
-    }
 
     def clear_data(self):
         self.data = {}
