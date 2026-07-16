@@ -1,10 +1,8 @@
 import numpy as np
 from shapely.geometry import Point, Polygon, MultiPoint
-import simplekml
 import json
 import os
 from datetime import datetime
-import traceback
 
 class PolygonGenerator:
     def __init__(self, data_processor):
@@ -56,88 +54,6 @@ class PolygonGenerator:
         except Exception as e:
             return None, f"Ошибка при создании полигона: {str(e)}"
     
-    def generate_kml(self, polygons_data, city_name=None):
-        try:
-            print(f"📝 Начинаем создание KML. Полигонов: {len(polygons_data)}")
-            
-            kml = simplekml.Kml()
-            
-            polystyle = simplekml.Style()
-            polystyle.id = 'polygonStyle'
-            polystyle.polystyle.color = '7f00ff00'
-            polystyle.polystyle.outline = 1
-            polystyle.linestyle.color = 'ff00ff00'
-            polystyle.linestyle.width = 2
-            
-            kml.document.add_style(polystyle)
-            print("✅ Стиль добавлен")
-            
-            for i, polygon_data in enumerate(polygons_data):
-                if 'coordinates' not in polygon_data or not polygon_data['coordinates']:
-                    continue
-                
-                try:
-                    auditor_id = polygon_data['auditor_id']
-                    
-                    auditor_records = self.data_processor.get_data_by_auditor(auditor_id)
-                    city_from_data = city_name if city_name else 'Город'
-                    if auditor_records and len(auditor_records) > 0:
-                        city_from_data = auditor_records[0].get('city', city_from_data)
-                    
-                    placemark_name = f"🗺️ {city_from_data}-Зона-{i+1}"
-                    
-                    description = f"Аудитор: {auditor_id}\n"
-                    description += f"Город: {city_from_data}\n"
-                    description += f"Количество точек: {polygon_data.get('points_count', 0)}"
-                    
-                    placemark = kml.newpolygon(name=placemark_name)
-                    placemark.description = description
-                    placemark.styleUrl = '#polygonStyle'
-                    
-                    coords = polygon_data['coordinates'].copy()
-                    if coords and coords[0] != coords[-1]:
-                        coords.append(coords[0])
-                    
-                    placemark.polygon.outerboundaryis = [
-                        (float(lon), float(lat), 0) for lon, lat in coords
-                    ]
-                    
-                    for record in auditor_records:
-                        if 'lat' in record and 'lon' in record:
-                            try:
-                                lat = float(record['lat'])
-                                lon = float(record['lon'])
-                                point_placemark = kml.newpoint(
-                                    name=f"Точка {record.get('tp_id', '')}"
-                                )
-                                point_placemark.coords = [(lon, lat)]
-                                point_placemark.style.iconstyle.color = simplekml.Color.red
-                                point_placemark.style.iconstyle.scale = 0.5
-                            except (ValueError, TypeError):
-                                continue
-                    
-                except Exception as e:
-                    print(f"  ❌ Ошибка: {str(e)}")
-                    continue
-            
-            filename = f"polygons_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-            if city_name:
-                filename = f"{city_name}_{filename}"
-            
-            os.makedirs('data', exist_ok=True)
-            
-            kml_file = f"data/{filename}.kml"
-            kml.save(kml_file)
-            
-            if os.path.exists(kml_file):
-                return kml_file
-            else:
-                return None
-            
-        except Exception as e:
-            print(f"❌ Ошибка при создании KML: {str(e)}")
-            print(traceback.format_exc())
-            return None
     
     def create_polygons_for_all_auditors(self, min_points=3, buffer_km=0.5):
         auditors = self.data_processor.get_auditors()
