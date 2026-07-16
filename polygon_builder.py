@@ -1,5 +1,4 @@
 from shapely.geometry import MultiPoint
-from shapely.ops import simplify
 from cluster_engine import ClusterEngine
 
 class PolygonBuilder:
