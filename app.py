@@ -45,24 +45,27 @@ def generate_kml_simple(polygons):
         coord_str = " ".join([f"{lon},{lat},0" for lon, lat in coords])
         
         kml = kml.replace('</Document>', f'''
-<Placemark>
-    <name>{poly['auditor_id']} - {poly['city']} (Зона {poly['cluster_id']})</name>
-    <description>
-        Аудитор: {poly['auditor_id']}
-        Город: {poly['city']}
-        Количество точек: {poly['points_count']}
-        Площадь: {poly['area_km2']:.1f} км²
-    </description>
-    <styleUrl>#polygonStyle</styleUrl>
-    <Polygon>
-        <outerBoundaryIs>
-            <LinearRing>
-                <coordinates>{coord_str}</coordinates>
-            </LinearRing>
-        </outerBoundaryIs>
-    </Polygon>
-</Placemark>
-</Document>''')
+        <Placemark>
+            <name>{poly['auditor_id']} - {poly['city']} (Зона {poly['cluster_id']})</name>
+            <description>
+                Аудитор: {poly['auditor_id']}
+                Город: {poly['city']}
+                Количество точек: {poly['points_count']}
+                Площадь: {poly['area_km2']:.1f} км²
+            </description>
+            <Style>
+                <LineStyle><color>ff00ff00</color><width>2</width></LineStyle>
+                <PolyStyle><color>7f00ff00</color><fill>1</fill><outline>1</outline></PolyStyle>
+            </Style>
+            <Polygon>
+                <outerBoundaryIs>
+                    <LinearRing>
+                        <coordinates>{coord_str}</coordinates>
+                    </LinearRing>
+                </outerBoundaryIs>
+            </Polygon>
+        </Placemark>
+        </Document>''')
     
     return kml
 
