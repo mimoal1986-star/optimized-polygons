@@ -34,6 +34,18 @@ def generate_kml_simple(polygons):
 </Style>
 </Document>
 '''
+    # === ОТЛАДКА КООРДИНАТ ===
+    import streamlit as st
+    st.write("=== ОТЛАДКА КООРДИНАТ ===")
+    for i, poly in enumerate(polygons[:3]):  # Первые 3 полигона
+        coords = poly['coordinates']
+        st.write(f"Полигон {i+1}:")
+        st.write(f"  Количество координат: {len(coords)}")
+        if len(coords) > 0:
+            st.write(f"  Первая координата: {coords[0]}")
+            st.write(f"  Вторая координата: {coords[1] if len(coords) > 1 else 'нет'}")
+            st.write(f"  Третья координата: {coords[2] if len(coords) > 2 else 'нет'}")
+    # === КОНЕЦ ОТЛАДКИ ===
     
     for poly in polygons:
         coords = poly['coordinates']
