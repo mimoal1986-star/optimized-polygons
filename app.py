@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 import json
 import os
 import time
+import hashlib
 
 # Настройка страницы
 st.set_page_config(
@@ -56,7 +57,11 @@ with st.sidebar:
     )
     
     if uploaded_file is not None:
-        file_key = f"{uploaded_file.name}_{uploaded_file.size}_{uploaded_file.modified}"
+        # Создаем хеш содержимого файла для уникальной идентификации
+        file_content = uploaded_file.read()
+        file_hash = hashlib.md5(file_content).hexdigest()
+        uploaded_file.seek(0)  # Сбрасываем указатель после чтения
+        file_key = f"{uploaded_file.name}_{file_hash}"
         
         if file_key not in st.session_state.processed_files:
             progress_bar = st.progress(0)
@@ -83,13 +88,11 @@ with st.sidebar:
                 status_text.text("💾 Сохранение данных...")
                 
                 if count:
-                    # Сохраняем в GitHub
                     success, save_msg = data_processor.save_data()
                     if success:
                         progress_bar.progress(100)
                         status_text.text("✅ Готово!")
                         
-                        # Сохраняем в сессию
                         st.session_state.processed_files[file_key] = {
                             'count': count,
                             'message': message,
@@ -115,7 +118,6 @@ with st.sidebar:
                 status_text.empty()
                 st.error(f"❌ Ошибка при загрузке: {str(e)}")
         else:
-            # Показываем кэшированный результат
             file_info = st.session_state.processed_files[file_key]
             st.success(f"✅ Файл обработан: {file_info['message']}")
             st.caption(f"🕐 {file_info['timestamp']}")
