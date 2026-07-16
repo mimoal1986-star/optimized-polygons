@@ -7,6 +7,8 @@ import plotly.graph_objects as go
 from datetime import datetime
 import json
 import os
+from cluster_engine import ClusterEngine
+from polygon_builder import PolygonBuilder
 
 # Настройка страницы
 st.set_page_config(
@@ -24,7 +26,8 @@ def init_processors():
 
 try:
     data_processor, polygon_generator = init_processors()
-    # Данные уже загружены в __init__, ничего дополнительно не делаем
+    cluster_engine = ClusterEngine()
+    polygon_builder = PolygonBuilder(data_processor)
 except Exception as e:
     st.error(f"Ошибка инициализации: {str(e)}")
     st.stop()
@@ -139,6 +142,33 @@ with st.sidebar:
         value=0.5,
         step=0.1
     )
+    
+    st.markdown("---")
+    st.subheader("🔧 Параметры кластеризации")
+    
+    min_points = st.slider(
+        "Минимальное количество точек в кластере",
+        min_value=3,
+        max_value=10,
+        value=3,
+        help="Кластеры с меньшим количеством точек будут отброшены"
+    )
+    
+    auto_eps = st.checkbox(
+        "Автоматический подбор eps (рекомендуется)",
+        value=True,
+        help="Автоматически определяет радиус кластеризации для каждого города"
+    )
+    
+    if not auto_eps:
+        eps_km = st.slider(
+            "Радиус кластеризации (км)",
+            min_value=0.5,
+            max_value=5.0,
+            value=1.0,
+            step=0.1,
+            help="Используется только если автоматический подбор отключен"
+        )
 
 # Основная область
 tab1, tab2, tab3 = st.tabs(
@@ -210,59 +240,73 @@ with tab1:
         st.info("Нет данных для отображения. Загрузите файл с данными.")
 
 with tab2:
-    st.header("Генерация полигонов")
+    st.header("📐 Генерация полигонов")
     
     if not data_processor.data:
         st.warning("Нет данных для генерации полигонов. Сначала загрузите файл с данными.")
     else:
-        if st.button("🚀 Создать полигоны для всех аудиторов", type="primary"):
-            with st.spinner("Генерация полигонов..."):
-                polygons, errors = polygon_generator.create_polygons_for_all_auditors(
-                    min_points=min_points,
-                    buffer_km=buffer_km
-                )
-                
-                if polygons:
-                    st.success(f"✅ Создано {len(polygons)} полигонов")
+        # Показываем статистику перед генерацией
+        auditors = data_processor.get_auditors()
+        
+        if not auditors:
+            st.warning("Нет аудиторов в данных")
+        else:
+            st.info(f"👤 Найдено аудиторов: {len(auditors)}")
+            
+            if st.button("🚀 Создать полигоны для всех аудиторов", type="primary"):
+                with st.spinner("🔄 Кластеризация и построение полигонов..."):
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
                     
-                    st.subheader("Результаты")
+                    all_polygons = []
+                    errors = []
                     
-                    # Таблица с кнопкой скачивания в каждой строке
-                    for idx, p in enumerate(polygons):
-                        col1, col2, col3, col4 = st.columns([2, 1.5, 1.5, 1.5])
+                    total_auditors = len(auditors)
+                    
+                    for i, auditor in enumerate(auditors):
+                        status_text.text(f"Обработка: {auditor} ({i+1}/{total_auditors})")
                         
+                        # Создаем полигоны для аудитора
+                        polygons = polygon_builder.build_polygons_for_auditor(
+                            auditor,
+                            buffer_km=buffer_km,
+                            min_points=min_points
+                        )
+                        
+                        if polygons:
+                            all_polygons.extend(polygons)
+                        else:
+                            errors.append(f"{auditor}: не удалось создать полигоны")
+                        
+                        progress_bar.progress((i + 1) / total_auditors)
+                    
+                    progress_bar.progress(1.0)
+                    status_text.text("✅ Готово!")
+                    
+                    # Сохраняем в сессию
+                    st.session_state['polygons'] = all_polygons
+                    
+                    if all_polygons:
+                        # Статистика по полигонам
+                        cities_count = len(set([p['city'] for p in all_polygons]))
+                        
+                        col1, col2, col3 = st.columns(3)
                         with col1:
-                            st.write(p['auditor_id'])
+                            st.metric("Всего полигонов", len(all_polygons))
                         with col2:
-                            st.write(p['points_count'])
+                            st.metric("Затронуто городов", cities_count)
                         with col3:
-                            st.write(f"{p.get('area_km2', 0):.1f}")
-                        with col4:
-                            if st.button("📥 KML", key=f"kml_{p['auditor_id']}_{idx}"):
-                                kml_file = polygon_generator.generate_kml([p])
-                                if kml_file and os.path.exists(kml_file):
-                                    with open(kml_file, 'rb') as f:
-                                        st.download_button(
-                                            label="Скачать",
-                                            data=f,
-                                            file_name=f"{p['auditor_id']}_{datetime.now().strftime('%Y%m%d')}.kml",
-                                            mime="application/vnd.google-earth.kml+xml",
-                                            key=f"download_{p['auditor_id']}_{idx}"
-                                        )
-                                else:
-                                    st.error(f"Ошибка создания KML для {p['auditor_id']}")
-                    
-                    st.session_state['polygons'] = polygons
+                            total_area = sum([p['area_km2'] for p in all_polygons])
+                            st.metric("Общая площадь (км²)", f"{total_area:.1f}")
+                        
+                        st.success(f"✅ Создано {len(all_polygons)} полигонов для {len(auditors)} аудиторов")
+                    else:
+                        st.error("❌ Не удалось создать ни одного полигона")
                     
                     if errors:
-                        st.warning("⚠️ Ошибки при создании некоторых полигонов:")
-                        for error in errors:
-                            st.code(error)
-                else:
-                    st.error("❌ Не удалось создать ни одного полигона")
-                    if errors:
-                        for error in errors:
-                            st.code(error)
+                        with st.expander("⚠️ Ошибки при создании полигонов"):
+                            for error in errors:
+                                st.code(error)
 
 with tab3:
     st.header("📤 Экспорт данных")
@@ -270,63 +314,126 @@ with tab3:
     if 'polygons' in st.session_state and st.session_state['polygons']:
         st.subheader("🗺️ Экспорт в KML")
         
-        if st.button("📥 Создать общий KML"):
+        # Генерация KML вручную (без simplekml)
+        if st.button("📥 Создать KML"):
             with st.spinner("Создание KML файла..."):
-                kml_file = polygon_generator.generate_kml(
-                    st.session_state['polygons']
-                )
-                
-                if kml_file and os.path.exists(kml_file):
-                    with open(kml_file, 'rb') as f:
-                        st.download_button(
-                            label="Скачать общий KML файл",
-                            data=f,
-                            file_name=os.path.basename(kml_file),
-                            mime="application/vnd.google-earth.kml+xml"
-                        )
+                kml_content = generate_kml_simple(st.session_state['polygons'])
+                if kml_content:
+                    st.download_button(
+                        label="Скачать KML (Google Earth)",
+                        data=kml_content.encode('utf-8'),
+                        file_name=f"polygons_{datetime.now().strftime('%Y%m%d_%H%M%S')}.kml",
+                        mime="application/vnd.google-earth.kml+xml"
+                    )
                 else:
-                    st.error("Ошибка при создании KML файла")
+                    st.error("Ошибка при создании KML")
         
-        st.subheader("🌐 Экспорт в GeoJSON")
+        st.subheader("📊 Экспорт в CSV для Google My Maps")
         
-        if st.button("📥 Создать GeoJSON"):
-            with st.spinner("Создание GeoJSON файла..."):
-                geojson_file = polygon_generator.export_to_geojson(
-                    st.session_state['polygons']
-                )
-                
-                if geojson_file and os.path.exists(geojson_file):
-                    with open(geojson_file, 'rb') as f:
-                        st.download_button(
-                            label="Скачать GeoJSON",
-                            data=f,
-                            file_name=os.path.basename(geojson_file),
-                            mime="application/json"
-                        )
-                else:
-                    st.error("Ошибка при создании GeoJSON файла")
-        
-        st.subheader("📊 Экспорт данных в CSV")
-                
         if st.button("📥 Создать CSV"):
             with st.spinner("Создание CSV файла..."):
-                df_export = pd.DataFrame(list(data_processor.data.values()))
-                if not df_export.empty:
-                    # Меняем местами lat и lon
-                    if 'lat' in df_export.columns and 'lon' in df_export.columns:
-                        df_export['lat'], df_export['lon'] = df_export['lon'], df_export['lat']
-                    
-                    csv = df_export.to_csv(index=False)
-                    
+                csv_content = generate_csv_for_google(st.session_state['polygons'])
+                if csv_content:
                     st.download_button(
-                        label="Скачать CSV",
-                        data=csv,
-                        file_name=f"auditor_data_{datetime.now().strftime('%Y%m%d')}.csv",
+                        label="Скачать CSV (Google My Maps)",
+                        data=csv_content.encode('utf-8-sig'),
+                        file_name=f"polygons_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                         mime="text/csv"
                     )
+                else:
+                    st.error("Ошибка при создании CSV")
     else:
         st.info("Сначала создайте полигоны в разделе '📐 Полигоны'")
 
 # Footer
 st.markdown("---")
 st.caption("🚀 Сервис разработан для генерации полигонов аудиторов на основе данных посещений")
+
+
+# ==============================================
+# ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ ЭКСПОРТА
+# ==============================================
+
+def generate_kml_simple(polygons):
+    """Генерирует KML вручную (без simplekml)"""
+    if not polygons:
+        return None
+    
+    kml = '''<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+<Document>
+<name>Полигоны аудиторов</name>
+<Style id="polygonStyle">
+    <LineStyle>
+        <color>ff00ff00</color>
+        <width>2</width>
+    </LineStyle>
+    <PolyStyle>
+        <color>7f00ff00</color>
+        <fill>1</fill>
+        <outline>1</outline>
+    </PolyStyle>
+</Style>
+</Document>
+'''
+    
+    for poly in polygons:
+        coords = poly['coordinates']
+        
+        # Замыкаем полигон
+        if coords and coords[0] != coords[-1]:
+            coords = coords + [coords[0]]
+        
+        coord_str = " ".join([f"{lon},{lat},0" for lon, lat in coords])
+        
+        kml = kml.replace('</Document>', f'''
+<Placemark>
+    <name>{poly['auditor_id']} - {poly['city']} (Зона {poly['cluster_id']})</name>
+    <description>
+        Аудитор: {poly['auditor_id']}
+        Город: {poly['city']}
+        Количество точек: {poly['points_count']}
+        Площадь: {poly['area_km2']:.1f} км²
+    </description>
+    <styleUrl>#polygonStyle</styleUrl>
+    <Polygon>
+        <outerBoundaryIs>
+            <LinearRing>
+                <coordinates>{coord_str}</coordinates>
+            </LinearRing>
+        </outerBoundaryIs>
+    </Polygon>
+</Placemark>
+</Document>''')
+    
+    return kml
+
+def generate_csv_for_google(polygons):
+    """Генерирует CSV для импорта в Google My Maps"""
+    import pandas as pd
+    
+    rows = []
+    for poly in polygons:
+        center_lon, center_lat = poly['center']
+        
+        # Центр полигона как точка
+        rows.append({
+            'lat': center_lat,
+            'lon': center_lon,
+            'name': f"{poly['auditor_id']} - {poly['city']} (Зона {poly['cluster_id']})",
+            'description': f"Площадь: {poly['area_km2']:.1f} км², Точек: {poly['points_count']}",
+            'type': 'center'
+        })
+        
+        # Границы полигона как отдельные точки
+        for i, (lon, lat) in enumerate(poly['coordinates']):
+            rows.append({
+                'lat': lat,
+                'lon': lon,
+                'name': f"{poly['auditor_id']} - {poly['city']} (граница)",
+                'description': f"Точка {i+1} из {len(poly['coordinates'])}",
+                'type': 'boundary'
+            })
+    
+    df = pd.DataFrame(rows)
+    return df.to_csv(index=False, encoding='utf-8-sig')
