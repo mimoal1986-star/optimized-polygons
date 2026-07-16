@@ -8,6 +8,94 @@ import os
 from cluster_engine import ClusterEngine
 from polygon_builder import PolygonBuilder
 
+# ==============================================
+# ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ ЭКСПОРТА
+# ==============================================
+
+def generate_kml_simple(polygons):
+    """Генерирует KML вручную (без simplekml)"""
+    if not polygons:
+        return None
+    
+    kml = '''<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+<Document>
+<name>Полигоны аудиторов</name>
+<Style id="polygonStyle">
+    <LineStyle>
+        <color>ff00ff00</color>
+        <width>2</width>
+    </LineStyle>
+    <PolyStyle>
+        <color>7f00ff00</color>
+        <fill>1</fill>
+        <outline>1</outline>
+    </PolyStyle>
+</Style>
+</Document>
+'''
+    
+    for poly in polygons:
+        coords = poly['coordinates']
+        
+        # Замыкаем полигон
+        if coords and coords[0] != coords[-1]:
+            coords = coords + [coords[0]]
+        
+        coord_str = " ".join([f"{lon},{lat},0" for lon, lat in coords])
+        
+        kml = kml.replace('</Document>', f'''
+<Placemark>
+    <name>{poly['auditor_id']} - {poly['city']} (Зона {poly['cluster_id']})</name>
+    <description>
+        Аудитор: {poly['auditor_id']}
+        Город: {poly['city']}
+        Количество точек: {poly['points_count']}
+        Площадь: {poly['area_km2']:.1f} км²
+    </description>
+    <styleUrl>#polygonStyle</styleUrl>
+    <Polygon>
+        <outerBoundaryIs>
+            <LinearRing>
+                <coordinates>{coord_str}</coordinates>
+            </LinearRing>
+        </outerBoundaryIs>
+    </Polygon>
+</Placemark>
+</Document>''')
+    
+    return kml
+
+def generate_csv_for_google(polygons):
+    """Генерирует CSV для импорта в Google My Maps"""
+    import pandas as pd
+    
+    rows = []
+    for poly in polygons:
+        center_lon, center_lat = poly['center']
+        
+        # Центр полигона как точка
+        rows.append({
+            'lat': center_lat,
+            'lon': center_lon,
+            'name': f"{poly['auditor_id']} - {poly['city']} (Зона {poly['cluster_id']})",
+            'description': f"Площадь: {poly['area_km2']:.1f} км², Точек: {poly['points_count']}",
+            'type': 'center'
+        })
+        
+        # Границы полигона как отдельные точки
+        for i, (lon, lat) in enumerate(poly['coordinates']):
+            rows.append({
+                'lat': lat,
+                'lon': lon,
+                'name': f"{poly['auditor_id']} - {poly['city']} (граница)",
+                'description': f"Точка {i+1} из {len(poly['coordinates'])}",
+                'type': 'boundary'
+            })
+    
+    df = pd.DataFrame(rows)
+    return df.to_csv(index=False, encoding='utf-8-sig')
+    
 # Настройка страницы
 st.set_page_config(
     page_title="Сервис полигонов аудиторов",
@@ -348,90 +436,4 @@ st.markdown("---")
 st.caption("🚀 Сервис разработан для генерации полигонов аудиторов на основе данных посещений")
 
 
-# ==============================================
-# ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ ЭКСПОРТА
-# ==============================================
 
-def generate_kml_simple(polygons):
-    """Генерирует KML вручную (без simplekml)"""
-    if not polygons:
-        return None
-    
-    kml = '''<?xml version="1.0" encoding="UTF-8"?>
-<kml xmlns="http://www.opengis.net/kml/2.2">
-<Document>
-<name>Полигоны аудиторов</name>
-<Style id="polygonStyle">
-    <LineStyle>
-        <color>ff00ff00</color>
-        <width>2</width>
-    </LineStyle>
-    <PolyStyle>
-        <color>7f00ff00</color>
-        <fill>1</fill>
-        <outline>1</outline>
-    </PolyStyle>
-</Style>
-</Document>
-'''
-    
-    for poly in polygons:
-        coords = poly['coordinates']
-        
-        # Замыкаем полигон
-        if coords and coords[0] != coords[-1]:
-            coords = coords + [coords[0]]
-        
-        coord_str = " ".join([f"{lon},{lat},0" for lon, lat in coords])
-        
-        kml = kml.replace('</Document>', f'''
-<Placemark>
-    <name>{poly['auditor_id']} - {poly['city']} (Зона {poly['cluster_id']})</name>
-    <description>
-        Аудитор: {poly['auditor_id']}
-        Город: {poly['city']}
-        Количество точек: {poly['points_count']}
-        Площадь: {poly['area_km2']:.1f} км²
-    </description>
-    <styleUrl>#polygonStyle</styleUrl>
-    <Polygon>
-        <outerBoundaryIs>
-            <LinearRing>
-                <coordinates>{coord_str}</coordinates>
-            </LinearRing>
-        </outerBoundaryIs>
-    </Polygon>
-</Placemark>
-</Document>''')
-    
-    return kml
-
-def generate_csv_for_google(polygons):
-    """Генерирует CSV для импорта в Google My Maps"""
-    import pandas as pd
-    
-    rows = []
-    for poly in polygons:
-        center_lon, center_lat = poly['center']
-        
-        # Центр полигона как точка
-        rows.append({
-            'lat': center_lat,
-            'lon': center_lon,
-            'name': f"{poly['auditor_id']} - {poly['city']} (Зона {poly['cluster_id']})",
-            'description': f"Площадь: {poly['area_km2']:.1f} км², Точек: {poly['points_count']}",
-            'type': 'center'
-        })
-        
-        # Границы полигона как отдельные точки
-        for i, (lon, lat) in enumerate(poly['coordinates']):
-            rows.append({
-                'lat': lat,
-                'lon': lon,
-                'name': f"{poly['auditor_id']} - {poly['city']} (граница)",
-                'description': f"Точка {i+1} из {len(poly['coordinates'])}",
-                'type': 'boundary'
-            })
-    
-    df = pd.DataFrame(rows)
-    return df.to_csv(index=False, encoding='utf-8-sig')
