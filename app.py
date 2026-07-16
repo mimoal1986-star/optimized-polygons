@@ -18,22 +18,11 @@ def generate_kml_simple(polygons):
         return None
     
     kml = '''<?xml version="1.0" encoding="UTF-8"?>
-<kml xmlns="http://www.opengis.net/kml/2.2">
-<Document>
-<name>Полигоны аудиторов</name>
-<Style id="polygonStyle">
-    <LineStyle>
-        <color>ff00ff00</color>
-        <width>2</width>
-    </LineStyle>
-    <PolyStyle>
-        <color>7f00ff00</color>
-        <fill>1</fill>
-        <outline>1</outline>
-    </PolyStyle>
-</Style>
-</Document>
-'''
+    <kml xmlns="http://www.opengis.net/kml/2.2">
+    <Document>
+    <name>Полигоны аудиторов</name>
+    </Document>
+    '''
     # === ОТЛАДКА КООРДИНАТ ===
     import streamlit as st
     st.write("=== ОТЛАДКА КООРДИНАТ ===")
