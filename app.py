@@ -402,18 +402,71 @@ with tab3:
     st.header("📤 Экспорт данных")
     
     if 'polygons' in st.session_state and st.session_state['polygons']:
-        st.subheader("🗺️ Экспорт в KML")
+        polygons = st.session_state['polygons']
         
-        # Генерация KML вручную (без simplekml)
-        if st.button("📥 Создать KML"):
+        # Получаем список уникальных городов
+        cities = sorted(set([p['city'] for p in polygons]))
+        
+        st.subheader("🏙️ Экспорт по городам")
+        
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
+            selected_city = st.selectbox(
+                "Выберите город для экспорта:",
+                ["Все города"] + cities
+            )
+        
+        with col2:
+            if st.button("📥 Создать KML", type="primary"):
+                with st.spinner("Создание KML файла..."):
+                    if selected_city == "Все города":
+                        kml_content = generate_kml_simple(polygons)
+                        filename = f"polygons_all_{datetime.now().strftime('%Y%m%d_%H%M%S')}.kml"
+                        label = "Скачать все полигоны"
+                    else:
+                        city_polygons = [p for p in polygons if p['city'] == selected_city]
+                        kml_content = generate_kml_simple(city_polygons)
+                        filename = f"polygons_{selected_city}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.kml"
+                        label = f"Скачать KML ({selected_city})"
+                    
+                    if kml_content:
+                        st.download_button(
+                            label=label,
+                            data=kml_content.encode('utf-8'),
+                            file_name=filename,
+                            mime="application/vnd.google-earth.kml+xml",
+                            use_container_width=True
+                        )
+                        st.success(f"✅ KML создан: {len(city_polygons if selected_city != 'Все города' else polygons)} полигонов")
+                    else:
+                        st.error("Ошибка при создании KML")
+        
+        # Статистика по городам
+        with st.expander("📊 Статистика по городам", expanded=False):
+            city_stats = {}
+            for p in polygons:
+                city = p['city']
+                if city not in city_stats:
+                    city_stats[city] = 0
+                city_stats[city] += 1
+            
+            st.write("Количество полигонов по городам:")
+            for city, count in sorted(city_stats.items()):
+                st.write(f"  • {city}: {count} полигонов")
+        
+        st.subheader("🗺️ Экспорт всех полигонов")
+        
+        if st.button("📥 Создать KML (все города)"):
             with st.spinner("Создание KML файла..."):
-                kml_content = generate_kml_simple(st.session_state['polygons'])
+                kml_content = generate_kml_simple(polygons)
                 if kml_content:
                     st.download_button(
-                        label="Скачать KML (Google Earth)",
+                        label="Скачать KML (все города)",
                         data=kml_content.encode('utf-8'),
-                        file_name=f"polygons_{datetime.now().strftime('%Y%m%d_%H%M%S')}.kml",
-                        mime="application/vnd.google-earth.kml+xml"
+                        file_name=f"polygons_all_{datetime.now().strftime('%Y%m%d_%H%M%S')}.kml",
+                        mime="application/vnd.google-earth.kml+xml",
+                        use_container_width=True
                     )
                 else:
                     st.error("Ошибка при создании KML")
@@ -422,13 +475,14 @@ with tab3:
         
         if st.button("📥 Создать CSV"):
             with st.spinner("Создание CSV файла..."):
-                csv_content = generate_csv_for_google(st.session_state['polygons'])
+                csv_content = generate_csv_for_google(polygons)
                 if csv_content:
                     st.download_button(
                         label="Скачать CSV (Google My Maps)",
                         data=csv_content.encode('utf-8-sig'),
                         file_name=f"polygons_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                        mime="text/csv"
+                        mime="text/csv",
+                        use_container_width=True
                     )
                 else:
                     st.error("Ошибка при создании CSV")
