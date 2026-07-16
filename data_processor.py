@@ -365,12 +365,11 @@ class DataProcessor:
         try:
             df = pd.read_excel(uploaded_file, dtype=str, engine='openpyxl')
             
-            required_cols = ['Аудитор', 'ТП', 'Дата визита', 'Гео/ш', 'Гео/д']
+            required_cols = ['ТП', 'Дата визита', 'Гео/ш', 'Гео/д']
             missing_cols = [col for col in required_cols if col not in df.columns]
             
             if missing_cols:
                 alt_cols = {
-                    'Аудитор': ['Аудитор', 'Auditor', 'ID аудитора'],
                     'ТП': ['ТП', 'Торговая точка', 'TP'],
                     'Дата визита': ['Дата визита', 'Дата', 'Visit date'],
                     'Гео/ш': ['Гео/ш', 'Широта', 'Latitude', 'Lat'],
@@ -430,7 +429,6 @@ class DataProcessor:
                 new_data[key] = {
                     'record_id': str(uuid.uuid4()),
                     'record_created': datetime.now().isoformat(),
-                    'auditor': str(record.get('Аудитор', '')),
                     'tp_id': str(record['ТП']),
                     'city': str(record.get('Город', '')) if pd.notna(record.get('Город', '')) else '',
                     'region': str(record.get('Регион', '')) if pd.notna(record.get('Регион', '')) else '',
