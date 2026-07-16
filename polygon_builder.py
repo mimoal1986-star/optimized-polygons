@@ -44,6 +44,7 @@ class PolygonBuilder:
                 simplified = expanded
             
             coords = list(simplified.exterior.coords)
+            coords = [(lat, lon) for lon, lat in coords]
             
             # 4. Площадь в км²
             area_km2 = simplified.area * 111 * 111
