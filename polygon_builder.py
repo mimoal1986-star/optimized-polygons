@@ -1,4 +1,5 @@
 from shapely.geometry import MultiPoint
+from shapely.ops import simplify
 from cluster_engine import ClusterEngine
 
 class PolygonBuilder:
@@ -8,8 +9,7 @@ class PolygonBuilder:
     
     def build_polygon(self, cluster, auditor_id, city, cluster_id, buffer_km=0.5):
         """
-        Строит полигон из кластера с использованием Convex Hull + Buffer
-        Возвращает словарь с данными полигона или None
+        Строит полигон из кластера с использованием Convex Hull + Buffer + Упрощение
         """
         if len(cluster) < 3:
             return None
@@ -35,11 +35,19 @@ class PolygonBuilder:
             if expanded.geom_type == 'MultiPolygon':
                 expanded = max(expanded.geoms, key=lambda p: p.area)
             
-            # 3. Координаты полигона
-            coords = list(expanded.exterior.coords)
+            # 3. Упрощение полигона (уменьшаем количество вершин)
+            # 0.005 градуса ≈ 550 метров — оптимально для Google My Maps
+            SIMPLIFY_TOLERANCE = 0.005
+            simplified = expanded.simplify(SIMPLIFY_TOLERANCE, preserve_topology=True)
+            
+            # Если упрощение дало меньше 4 точек — используем оригинал
+            if len(simplified.exterior.coords) < 4:
+                simplified = expanded
+            
+            coords = list(simplified.exterior.coords)
             
             # 4. Площадь в км²
-            area_km2 = expanded.area * 111 * 111
+            area_km2 = simplified.area * 111 * 111
             
             # 5. Центр полигона
             center_lon = sum([c[0] for c in coords]) / len(coords)
