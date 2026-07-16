@@ -85,7 +85,7 @@ with st.sidebar:
     # Статистика
     st.header("📈 Статистика")
     try:
-        stats = data_processor.get_statistics()
+        stats = data_processor.get_statistics_from_json()
         col1, col2 = st.columns(2)
         with col1:
             st.metric("Всего визитов", stats['total_visits'])
