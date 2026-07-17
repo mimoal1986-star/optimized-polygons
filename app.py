@@ -13,48 +13,97 @@ from polygon_builder import PolygonBuilder
 # ==============================================
 
 def generate_kml_simple(polygons):
-    """Генерирует KML вручную (без simplekml)"""
+    """Генерирует KML с уникальными цветами для каждого аудитора в городе"""
     if not polygons:
         return None
     
+    # ==============================================
+    # 1. Генерация цветов для каждого аудитора в каждом городе
+    # ==============================================
+    import hashlib
+    
+    def get_color_for_auditor(city, auditor_id):
+        """Генерирует уникальный цвет для аудитора в конкретном городе"""
+        # Создаем уникальный ключ: город + аудитор
+        key = f"{city}_{auditor_id}"
+        
+        # Хешируем для получения стабильного цвета
+        hash_obj = hashlib.md5(key.encode())
+        hash_hex = hash_obj.hexdigest()
+        
+        # Берем первые 6 символов для цвета
+        color = hash_hex[:6]
+        
+        return color
+    
+    # ==============================================
+    # 2. Группируем полигоны по городу и аудитору
+    # ==============================================
+    city_auditor_colors = {}
+    for poly in polygons:
+        city = poly['city']
+        auditor = poly['auditor_id']
+        key = f"{city}_{auditor}"
+        if key not in city_auditor_colors:
+            city_auditor_colors[key] = get_color_for_auditor(city, auditor)
+    
+    # ==============================================
+    # 3. Генерируем KML
+    # ==============================================
     kml = '''<?xml version="1.0" encoding="UTF-8"?>
-    <kml xmlns="http://www.opengis.net/kml/2.2">
-    <Document>
-    <name>Полигоны аудиторов</name>
-    </Document>
-    '''
+<kml xmlns="http://www.opengis.net/kml/2.2">
+<Document>
+<name>Полигоны аудиторов</name>
+</Document>
+'''
     
     for poly in polygons:
         coords = poly['coordinates']
+        city = poly['city']
+        auditor = poly['auditor_id']
         
         # Замыкаем полигон
         if coords and coords[0] != coords[-1]:
             coords = coords + [coords[0]]
         
-        coord_str = " ".join([f"{lon},{lat},0" for lon, lat in coords])
+        coord_str = "\n".join([f"{lon},{lat},0" for lon, lat in coords])
+        
+        # Получаем цвет для этого аудитора в этом городе
+        key = f"{city}_{auditor}"
+        color = city_auditor_colors.get(key, "ff00ff00")  # зеленый по умолчанию
+        
+        # Для KML цвет в формате AABBGGRR (прозрачность, синий, зеленый, красный)
+        # Нам нужен цвет в формате ffRRGGBB
+        r = int(color[0:2], 16)
+        g = int(color[2:4], 16)
+        b = int(color[4:6], 16)
+        
+        # Формат KML: AABBGGRR, но мы хотим ffRRGGBB (непрозрачный, RGB)
+        kml_color = f"ff{r:02x}{g:02x}{b:02x}"
+        kml_fill_color = f"7f{r:02x}{g:02x}{b:02x}"  # полупрозрачный для заливки
         
         kml = kml.replace('</Document>', f'''
-        <Placemark>
-            <name>{poly['auditor_id']} - {poly['city']} (Зона {poly['cluster_id']})</name>
-            <description>
-                Аудитор: {poly['auditor_id']}
-                Город: {poly['city']}
-                Количество точек: {poly['points_count']}
-                Площадь: {poly['area_km2']:.1f} км²
-            </description>
-            <Style>
-                <LineStyle><color>ff00ff00</color><width>2</width></LineStyle>
-                <PolyStyle><color>7f00ff00</color><fill>1</fill><outline>1</outline></PolyStyle>
-            </Style>
-            <Polygon>
-                <outerBoundaryIs>
-                    <LinearRing>
-                        <coordinates>{coord_str}</coordinates>
-                    </LinearRing>
-                </outerBoundaryIs>
-            </Polygon>
-        </Placemark>
-        </Document>''')
+<Placemark>
+    <name>{auditor} - {city} (Зона {poly['cluster_id']})</name>
+    <description>
+        Аудитор: {auditor}
+        Город: {city}
+        Количество точек: {poly['points_count']}
+        Площадь: {poly['area_km2']:.1f} км²
+    </description>
+    <Style>
+        <LineStyle><color>{kml_color}</color><width>2</width></LineStyle>
+        <PolyStyle><color>{kml_fill_color}</color><fill>1</fill><outline>1</outline></PolyStyle>
+    </Style>
+    <Polygon>
+        <outerBoundaryIs>
+            <LinearRing>
+                <coordinates>{coord_str}</coordinates>
+            </LinearRing>
+        </outerBoundaryIs>
+    </Polygon>
+</Placemark>
+</Document>''')
     
     return kml + '\n</kml>'
 
