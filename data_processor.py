@@ -229,7 +229,6 @@ class DataProcessor:
                     self.data[key] = new_record
                     added_count += 1
             
-            return len(new_data), f"✅ Загружено {len(new_data)} записей (добавлено: {added_count}, обновлено: {updated_count})"
             # Запускаем автоматическую проверку координат
             errors, check_message = self.validate_coordinates()
             
