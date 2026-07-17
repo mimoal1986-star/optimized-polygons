@@ -9,7 +9,28 @@ import base64
 import uuid
 
 class DataProcessor:
-    def __init__(self):
+    
+    # Координаты центров городов-миллионников (широта, долгота)
+    CITY_CENTERS = {
+        'Волгоград': (48.7071, 44.5169),
+        'Воронеж': (51.6605, 39.2003),
+        'Екатеринбург': (56.8389, 60.6057),
+        'Казань': (55.8304, 49.0661),
+        'Краснодар': (45.0355, 38.9753),
+        'Красноярск': (56.0106, 92.8526),
+        'Москва': (55.7558, 37.6173),
+        'Нижний Новгород': (56.2965, 43.9361),
+        'Новосибирск': (55.0302, 82.9204),
+        'Омск': (54.9885, 73.3242),
+        'Пермь': (58.0104, 56.2294),
+        'Ростов-на-Дону': (47.2357, 39.7015),
+        'Самара': (53.1959, 50.1002),
+        'Санкт-Петербург': (59.9343, 30.3351),
+        'Уфа': (54.7388, 55.9721),
+        'Челябинск': (55.1602, 61.4023),
+    }
+    
+    def __init__(self):        
         """Инициализация с GitHub API"""
         if 'github' not in st.secrets:
             st.error("❌ Секреты GitHub не найдены. Добавьте их в Streamlit Secrets")
@@ -209,6 +230,15 @@ class DataProcessor:
                     added_count += 1
             
             return len(new_data), f"✅ Загружено {len(new_data)} записей (добавлено: {added_count}, обновлено: {updated_count})"
+            # Запускаем автоматическую проверку координат
+            errors, check_message = self.validate_coordinates()
+            
+            # Сохраняем ошибки в session_state для экспорта
+            if errors:
+                import streamlit as st
+                st.session_state['error_points'] = errors
+            
+            return len(new_data), f"✅ Загружено {len(new_data)} записей (добавлено: {added_count}, обновлено: {updated_count}). {check_message}"
             
         except Exception as e:
             return None, f"Ошибка при обработке файла: {str(e)}"
@@ -250,6 +280,87 @@ class DataProcessor:
         self.data = {}
         success, message = self.save_data()
         return f"Все данные удалены. {message}"
+
+    def validate_coordinates(self):
+        """
+        Проверяет координаты всех точек:
+        - Удаляет точки дальше 50 км от центра города
+        - Возвращает словарь с ошибочными точками
+        """
+        import math
+        if not self.data:
+            return {}, "Нет данных для проверки"
+        
+        errors = {}
+        
+        for key, record in self.data.items():
+            city = record.get('city', '')
+            
+            if city not in self.CITY_CENTERS:
+                continue
+            
+            try:
+                lon = float(record.get('lon', 0))
+                lat = float(record.get('lat', 0))
+                
+                if lon == 0 or lat == 0:
+                    errors[key] = record
+                    continue
+                
+                center_lat, center_lon = self.CITY_CENTERS[city]
+                
+                # Расстояние по формуле гаверсинусов
+                R = 6371
+                lat1_rad = math.radians(center_lat)
+                lat2_rad = math.radians(lat)
+                delta_lat = math.radians(lat - center_lat)
+                delta_lon = math.radians(lon - center_lon)
+                
+                a = math.sin(delta_lat/2)**2 + math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(delta_lon/2)**2
+                c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
+                distance = R * c
+                
+                if distance > 50:
+                    errors[key] = record
+                    
+            except (ValueError, TypeError):
+                errors[key] = record
+        
+        for key in errors:
+            if key in self.data:
+                del self.data[key]
+        
+        return errors, f"Проверка завершена. Удалено {len(errors)} ошибочных точек"
+
+    def export_errors_to_excel(self, errors):
+        """Создает Excel файл с ошибочными точками"""
+        import io
+        import pandas as pd
+        
+        if not errors:
+            return None
+        
+        records = []
+        for key, record in errors.items():
+            row = {
+                'ТП': record.get('tp_id', ''),
+                'Дата визита': record.get('visit_date', ''),
+                'Гео/ш': record.get('lat', ''),
+                'Гео/д': record.get('lon', ''),
+                'Город': record.get('city', ''),
+                'Регион': record.get('region', ''),
+                'Адрес (город, адрес)': record.get('address', ''),
+            }
+            records.append(row)
+        
+        df = pd.DataFrame(records)
+        
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, sheet_name='Ошибочные точки', index=False)
+        
+        output.seek(0)
+        return output.getvalue()
 
     def get_points_by_city(self, auditor_id):
         """
