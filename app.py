@@ -225,8 +225,7 @@ with st.sidebar:
                                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                             )
                 else:
-                    st.success("✅ Ошибок не найдено! Все координаты корректны.")
-                        )
+                    st.success("✅ Ошибок не найдено! Все координаты корректны.")                     
     
     st.markdown("---")
     
