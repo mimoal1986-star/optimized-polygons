@@ -36,7 +36,7 @@ class PolygonBuilder:
             
             # 3. Упрощение полигона (уменьшаем количество вершин)
             # 0.005 градуса ≈ 550 метров — оптимально для Google My Maps
-            SIMPLIFY_TOLERANCE = 0.005
+            SIMPLIFY_TOLERANCE = 0.002
             simplified = expanded.simplify(SIMPLIFY_TOLERANCE, preserve_topology=True)
             
             # Если упрощение дало меньше 4 точек — используем оригинал
