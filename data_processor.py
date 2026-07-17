@@ -234,8 +234,9 @@ class DataProcessor:
             
             # Сохраняем ошибки в session_state для экспорта
             if errors:
-                import streamlit as st
                 st.session_state['error_points'] = errors
+            else:
+                st.session_state['error_points'] = {}  # Очищаем старые ошибки
             
             return len(new_data), f"✅ Загружено {len(new_data)} записей (добавлено: {added_count}, обновлено: {updated_count}). {check_message}"
             
