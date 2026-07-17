@@ -209,6 +209,20 @@ with st.sidebar:
                 st.error(f"Ошибка при загрузке: {str(e)}")
         else:
             st.success(f"✅ Файл '{uploaded_file.name}' уже загружен")
+            
+            # Показываем ошибки, если они есть
+            if 'error_points' in st.session_state and st.session_state['error_points']:
+                with st.expander("⚠️ Найдены ошибочные координаты"):
+                    st.warning(f"Обнаружено {len(st.session_state['error_points'])} точек с некорректными координатами (дальше 50 км от центра города)")
+                    
+                    excel_data = data_processor.export_errors_to_excel(st.session_state['error_points'])
+                    if excel_data:
+                        st.download_button(
+                            label="📥 Скачать ошибочные точки (Excel)",
+                            data=excel_data,
+                            file_name=f"ошибочные_точки_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        )
     
     st.markdown("---")
     
