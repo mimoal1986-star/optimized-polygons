@@ -93,12 +93,29 @@ class PlanningEngine:
         # Загружаем Ретро
         if retro_file is not None:
             self.retro_df = pd.read_excel(retro_file)
-            self.retro_df = normalize_columns(self.retro_df)
             
-            if 'широта' in self.retro_df.columns:
-                self.retro_df['широта'] = self.retro_df['широта'].astype(str).str.replace(',', '.').astype(float)
-            if 'долгота' in self.retro_df.columns:
-                self.retro_df['долгота'] = self.retro_df['долгота'].astype(str).str.replace(',', '.').astype(float)
+            lat_col = None
+            lon_col = None
+            login_col = None
+            
+            for col in self.retro_df.columns:
+                col_lower = col.lower().strip()
+                if col_lower in ['широта', 'latitude', 'lat', 'гео/ш']:
+                    lat_col = col
+                elif col_lower in ['долгота', 'longitude', 'lon', 'гео/д']:
+                    lon_col = col
+                elif col_lower in ['логин', 'login', 'auditor', 'id сотрудника', 'тп']:
+                    login_col = col
+            
+            if lat_col:
+                self.retro_df = self.retro_df.rename(columns={lat_col: 'широта'})
+            if lon_col:
+                self.retro_df = self.retro_df.rename(columns={lon_col: 'долгота'})
+            if login_col:
+                self.retro_df = self.retro_df.rename(columns={login_col: 'логин'})
+            
+            self.retro_df['широта'] = self.retro_df['широта'].astype(str).str.replace(',', '.').astype(float)
+            self.retro_df['долгота'] = self.retro_df['долгота'].astype(str).str.replace(',', '.').astype(float)
         
         return self.constant_df is not None
     
