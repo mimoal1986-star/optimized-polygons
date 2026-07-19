@@ -692,14 +692,176 @@ with tab4:
         if constant_file is None:
             st.error("❌ Загрузите файл Константы!")
         else:
-            st.info("🔧 Формирование плана — в разработке (будет в Шаге 3)")
-            st.session_state['plan_params'] = {
-                'target_ap': target_ap,
-                'constant_threshold': constant_threshold,
-                'variable_threshold': variable_threshold,
-                'type_tolerance': type_tolerance
-            }
-            st.success("✅ Параметры сохранены!")
+            # Проверяем наличие ретро-полигонов
+            if 'polygons' not in st.session_state or not st.session_state['polygons']:
+                st.error("❌ Сначала создайте ретро-полигоны в разделе '📐 Полигоны'!")
+            else:
+                with st.spinner("🔄 Формирование плана визитов..."):
+                    retro_polygons = st.session_state['polygons']
+                    
+                    # Извлекаем полигоны из данных
+                    polygon_geoms = []
+                    for poly_data in retro_polygons:
+                        coords = poly_data['coordinates']
+                        if coords and len(coords) >= 3:
+                            from shapely.geometry import Polygon
+                            # Замыкаем полигон если нужно
+                            if coords[0] != coords[-1]:
+                                coords = coords + [coords[0]]
+                            polygon_geoms.append(Polygon(coords))
+                    
+                    if not polygon_geoms:
+                        st.error("❌ Нет валидных полигонов для проверки!")
+                    else:
+                        # Запускаем формирование плана
+                        result = planning_engine.build_plan(
+                            retro_polygons=polygon_geoms,
+                            target_ap=target_ap,
+                            constant_threshold=constant_threshold,
+                            variable_threshold=variable_threshold,
+                            type_tolerance=type_tolerance
+                        )
+                        
+                        # Сохраняем результат в session_state
+                        st.session_state['plan_result'] = result
+                        
+                        # ==============================================
+                        # ОТОБРАЖЕНИЕ РЕЗУЛЬТАТА
+                        # ==============================================
+                        
+                        # 1. Статус
+                        if result['status'] == 'success':
+                            st.success(result['message'])
+                        elif result['status'] == 'warning':
+                            st.warning(result['message'])
+                            if 'type_errors' in result:
+                                with st.expander("⚠️ Детали по типам магазинов"):
+                                    for error in result['type_errors']:
+                                        st.write(f"- {error}")
+                        else:
+                            st.error(result['message'])
+                            st.stop()
+                        
+                        # 2. Статистика
+                        stats = result['statistics']
+                        util = result['utilization']
+                        
+                        st.subheader("📊 Статистика формирования плана")
+                        
+                        col1, col2, col3 = st.columns(3)
+                        
+                        with col1:
+                            st.metric("Целевой объем", stats.get('target_ap', 0))
+                            st.metric("Фактический объем", stats.get('final_count', 0))
+                            st.metric("Выполнение плана", f"{stats.get('plan_completion', 0):.1f}%")
+                        
+                        with col2:
+                            st.metric("Константа (всего)", stats.get('constant_total', 0))
+                            st.metric("Константа (отобрано)", stats.get('constant_selected', 0))
+                            st.metric("Утилизация константы", f"{stats.get('constant_utilization', 0):.1f}%")
+                        
+                        with col3:
+                            st.metric("Переменная (всего)", stats.get('variable_total', 0))
+                            st.metric("Переменная (отобрано)", stats.get('variable_selected', 0))
+                            st.metric("Утилизация переменной", f"{stats.get('variable_utilization', 0):.1f}%")
+                        
+                        # 3. Детальная утилизация
+                        with st.expander("📊 Детальная утилизация источников"):
+                            st.write("**Источники АП:**")
+                            st.write(f"- Константа: {util['constant']['selected']} из {util['constant']['total']} ({util['constant']['utilization']:.1f}%)")
+                            st.write(f"- Переменная: {util['variable']['selected']} из {util['variable']['total']} ({util['variable']['utilization']:.1f}%)")
+                            st.write(f"- Ретро: {util['retro']['selected']} из {util['retro']['total']} ({util['retro']['utilization']:.1f}%)")
+                        
+                        # 4. Пропорции по типам (сравнение)
+                        if 'final_ap' in result and not result['final_ap'].empty:
+                            with st.expander("📊 Пропорции по типам магазинов"):
+                                final_ap = result['final_ap']
+                                type_counts = final_ap['RED PoS Group'].value_counts()
+                                total = len(final_ap)
+                                
+                                type_data = []
+                                for type_name, expected_ratio in planning_engine.type_ratios.items():
+                                    actual_count = type_counts.get(type_name, 0)
+                                    actual_ratio = (actual_count / total * 100) if total > 0 else 0
+                                    type_data.append({
+                                        'Тип': type_name,
+                                        'Ожидаемая доля (%)': expected_ratio,
+                                        'Фактическая доля (%)': actual_ratio,
+                                        'Отклонение': actual_ratio - expected_ratio
+                                    })
+                                
+                                st.dataframe(pd.DataFrame(type_data), use_container_width=True, hide_index=True)
+                        
+                        # 5. Кнопка экспорта финальной АП
+                        if 'final_ap' in result and not result['final_ap'].empty:
+                            st.markdown("---")
+                            st.subheader("📥 Экспорт финальной АП")
+                            
+                            # Преобразуем в нужный формат
+                            export_df = result['final_ap'].copy()
+                            
+                            # Добавляем колонку "Источник" если её нет
+                            if 'Источник' not in export_df.columns:
+                                # Определяем источник по наличию в соответствующих DataFrame
+                                constant_ids = set(result['constant_selected'].index) if not result['constant_selected'].empty else set()
+                                variable_ids = set(result['variable_selected'].index) if not result['variable_selected'].empty else set()
+                                
+                                def get_source(idx):
+                                    if idx in constant_ids:
+                                        return 'Константа'
+                                    elif idx in variable_ids:
+                                        return 'Переменная'
+                                    else:
+                                        return 'Ретро'
+                                
+                                export_df['Источник'] = export_df.index.map(get_source)
+                            
+                            # Выбираем нужные колонки
+                            columns_order = ['Customer Name', 'RED PoS Group', 'Город', 'Street Name', 'Longitude', 'Latitude', 'Источник']
+                            available_cols = [col for col in columns_order if col in export_df.columns]
+                            export_df = export_df[available_cols]
+                            
+                            # Переименовываем для понятности
+                            rename_map = {
+                                'Customer Name': 'Имя клиента',
+                                'RED PoS Group': 'Тип магазина',
+                                'Город': 'Город',
+                                'Street Name': 'Адрес',
+                                'Longitude': 'Долгота',
+                                'Latitude': 'Широта'
+                            }
+                            export_df = export_df.rename(columns=rename_map)
+                            
+                            st.dataframe(export_df.head(20), use_container_width=True)
+                            st.caption(f"Показано первые 20 из {len(export_df)} строк")
+                            
+                            # Кнопка скачивания
+                            import io
+                            output = io.BytesIO()
+                            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                                export_df.to_excel(writer, sheet_name='Финальная АП', index=False)
+                                
+                                # Добавляем лист со статистикой
+                                stats_df = pd.DataFrame([
+                                    ['Параметр', 'Значение'],
+                                    ['Целевой объем', stats.get('target_ap', 0)],
+                                    ['Фактический объем', stats.get('final_count', 0)],
+                                    ['Выполнение плана', f"{stats.get('plan_completion', 0):.1f}%"],
+                                    ['Константа (отобрано)', stats.get('constant_selected', 0)],
+                                    ['Переменная (отобрано)', stats.get('variable_selected', 0)],
+                                    ['Ретро (отобрано)', stats.get('retro_selected', 0)],
+                                ])
+                                stats_df.to_excel(writer, sheet_name='Статистика', index=False, header=False)
+                            
+                            output.seek(0)
+                            
+                            st.download_button(
+                                label="📥 Скачать финальную АП (Excel)",
+                                data=output.getvalue(),
+                                file_name=f"финальная_АП_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                use_container_width=True
+                            )
 # Footer
 st.markdown("---")
 st.caption("🚀 Сервис разработан для генерации полигонов аудиторов на основе данных посещений")
