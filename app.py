@@ -743,8 +743,8 @@ with tab4:
                             st.stop()
                         
                         # 2. Статистика
-                        stats = result['statistics']
-                        util = result['utilization']
+                        stats = result.get('statistics', {})
+                        util = result.get('utilization', {})
                         
                         st.subheader("📊 Статистика формирования плана")
                         
