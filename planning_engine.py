@@ -116,3 +116,238 @@ class PlanningEngine:
             stats['retro_auditors'] = self.retro_df['логин'].nunique()
         
         return stats
+
+    
+    def check_point_in_polygons(self, lon, lat, polygons):
+        """
+        Проверяет, попадает ли точка хотя бы в один полигон
+        
+        Args:
+            lon: долгота точки
+            lat: широта точки
+            polygons: список полигонов (shapely.geometry.Polygon)
+        
+        Returns:
+            bool: True если точка попала хотя бы в один полигон
+        """
+        if not polygons:
+            return False
+        
+        point = Point(lon, lat)
+        
+        for polygon in polygons:
+            if polygon.contains(point):
+                return True
+        
+        return False
+        
+
+    def build_plan(self, retro_polygons, target_ap, constant_threshold=95, variable_threshold=95, type_tolerance=0):
+        """
+        Формирует план визитов (АП) на основе трех источников
+        
+        Args:
+            retro_polygons: список полигонов из st.session_state['polygons']
+            target_ap: целевой объем АП (месяц)
+            constant_threshold: минимальный % константы в АП (по умолчанию 95%)
+            variable_threshold: минимальный % от целевого АП для переменной (по умолчанию 95%)
+            type_tolerance: допуск по типам магазинов в % (по умолчанию 0)
+        
+        Returns:
+            dict: {
+                'status': 'success' | 'warning' | 'error',
+                'message': str,
+                'final_ap': DataFrame,
+                'statistics': dict,
+                'utilization': dict
+            }
+        """
+        if self.constant_df is None:
+            return {'status': 'error', 'message': 'Загрузите файл Константы!'}
+        
+        if not retro_polygons:
+            return {'status': 'error', 'message': 'Сначала создайте ретро-полигоны!'}
+        
+        # ==============================================
+        # ШАГ 1: Отбор Константы
+        # ==============================================
+        constant_selected = []
+        constant_total = len(self.constant_df)
+        
+        for _, row in self.constant_df.iterrows():
+            if self.check_point_in_polygons(row['Longitude'], row['Latitude'], retro_polygons):
+                constant_selected.append(row)
+        
+        constant_selected_df = pd.DataFrame(constant_selected)
+        constant_utilization = (len(constant_selected_df) / constant_total * 100) if constant_total > 0 else 0
+        
+        # Проверка порога константы
+        if constant_utilization < constant_threshold:
+            return {
+                'status': 'warning',
+                'message': f'⚠️ Константа: {constant_utilization:.1f}% (< {constant_threshold}%)',
+                'constant_selected': constant_selected_df,
+                'constant_utilization': constant_utilization,
+                'statistics': {
+                    'constant_total': constant_total,
+                    'constant_selected': len(constant_selected_df),
+                    'constant_utilization': constant_utilization
+                }
+            }
+        
+        # ==============================================
+        # ШАГ 2: Отбор Переменной
+        # ==============================================
+        variable_selected = []
+        variable_total = len(self.variable_df) if self.variable_df is not None else 0
+        
+        if self.variable_df is not None and variable_total > 0:
+            for _, row in self.variable_df.iterrows():
+                if self.check_point_in_polygons(row['Longitude'], row['Latitude'], retro_polygons):
+                    variable_selected.append(row)
+            
+            variable_selected_df = pd.DataFrame(variable_selected)
+            variable_utilization = (len(variable_selected_df) / variable_total * 100) if variable_total > 0 else 0
+        else:
+            variable_selected_df = pd.DataFrame()
+            variable_utilization = 0
+        
+        # ==============================================
+        # ШАГ 3: Проверка пропорций по типам
+        # ==============================================
+        temp_ap = pd.concat([constant_selected_df, variable_selected_df], ignore_index=True)
+        
+        if len(temp_ap) > 0:
+            type_counts = temp_ap['RED PoS Group'].value_counts()
+            total = len(temp_ap)
+            
+            type_errors = []
+            for type_name, expected_ratio in self.type_ratios.items():
+                actual_count = type_counts.get(type_name, 0)
+                actual_ratio = (actual_count / total * 100) if total > 0 else 0
+                deviation = abs(actual_ratio - expected_ratio)
+                
+                if deviation > type_tolerance:
+                    type_errors.append(
+                        f"{type_name}: ожидалось {expected_ratio:.2f}%, "
+                        f"получено {actual_ratio:.2f}% (отклонение {deviation:.2f}%)"
+                    )
+            
+            if type_errors:
+                return {
+                    'status': 'warning',
+                    'message': '⚠️ Нарушены пропорции по типам магазинов',
+                    'type_errors': type_errors,
+                    'constant_selected': constant_selected_df,
+                    'variable_selected': variable_selected_df,
+                    'statistics': {
+                        'constant_total': constant_total,
+                        'constant_selected': len(constant_selected_df),
+                        'constant_utilization': constant_utilization,
+                        'variable_total': variable_total,
+                        'variable_selected': len(variable_selected_df),
+                        'variable_utilization': variable_utilization,
+                        'total_selected': len(temp_ap)
+                    }
+                }
+        
+        # ==============================================
+        # ШАГ 4: Проверка выполнения целевого объема
+        # ==============================================
+        current_count = len(temp_ap)
+        
+        if current_count < target_ap * (variable_threshold / 100):
+            retro_selected_df = self._select_retro_points(
+                retro_polygons, 
+                target_ap - current_count,
+                self.constant_df['Customer Name'].unique().tolist()
+            )
+        else:
+            retro_selected_df = pd.DataFrame()
+        
+        # ==============================================
+        # ШАГ 5: Формирование финальной АП
+        # ==============================================
+        final_ap = pd.concat([
+            constant_selected_df,
+            variable_selected_df,
+            retro_selected_df
+        ], ignore_index=True)
+        
+        final_ap = final_ap.drop_duplicates(subset=['Longitude', 'Latitude'])
+        
+        # ==============================================
+        # ШАГ 6: Статистика
+        # ==============================================
+        final_count = len(final_ap)
+        plan_completion = (final_count / target_ap * 100) if target_ap > 0 else 0
+        
+        utilization = {
+            'constant': {
+                'total': constant_total,
+                'selected': len(constant_selected_df),
+                'utilization': constant_utilization
+            },
+            'variable': {
+                'total': variable_total,
+                'selected': len(variable_selected_df),
+                'utilization': variable_utilization
+            },
+            'retro': {
+                'total': len(self.retro_df) if self.retro_df is not None else 0,
+                'selected': len(retro_selected_df),
+                'utilization': (len(retro_selected_df) / len(self.retro_df) * 100) if self.retro_df is not None and len(self.retro_df) > 0 else 0
+            }
+        }
+        
+        return {
+            'status': 'success',
+            'message': f'✅ План сформирован: {final_count} из {target_ap} ({plan_completion:.1f}%)',
+            'final_ap': final_ap,
+            'constant_selected': constant_selected_df,
+            'variable_selected': variable_selected_df,
+            'retro_selected': retro_selected_df,
+            'statistics': {
+                'target_ap': target_ap,
+                'final_count': final_count,
+                'plan_completion': plan_completion,
+                'constant_total': constant_total,
+                'constant_selected': len(constant_selected_df),
+                'variable_total': variable_total,
+                'variable_selected': len(variable_selected_df),
+                'retro_selected': len(retro_selected_df),
+                'constant_utilization': constant_utilization,
+                'variable_utilization': variable_utilization
+            },
+            'utilization': utilization
+        }
+
+
+    def _select_retro_points(self, retro_polygons, needed_count, active_clients):
+        """
+        Отбирает точки из Ретро, если не хватает для достижения целевого объема
+        
+        Args:
+            retro_polygons: список полигонов
+            needed_count: сколько точек нужно добавить
+            active_clients: список активных клиентов (из Константы)
+        
+        Returns:
+            DataFrame: отобранные точки из Ретро
+        """
+        if self.retro_df is None or len(self.retro_df) == 0:
+            return pd.DataFrame()
+        
+        selected = []
+        
+        for _, row in self.retro_df.iterrows():
+            if row['логин'] not in active_clients:
+                continue
+            
+            if self.check_point_in_polygons(row['долгота'], row['широта'], retro_polygons):
+                selected.append(row)
+            
+            if len(selected) >= needed_count:
+                break
+        
+        return pd.DataFrame(selected)
