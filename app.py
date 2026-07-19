@@ -6,6 +6,7 @@ import json
 import os
 from cluster_engine import ClusterEngine
 from polygon_builder import PolygonBuilder
+from planning_engine import PlanningEngine
 
 # ==============================================
 # ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ ЭКСПОРТА
@@ -153,6 +154,7 @@ try:
     data_processor = init_processors()
     cluster_engine = ClusterEngine()
     polygon_builder = PolygonBuilder(data_processor)
+    planning_engine = PlanningEngine()
 except Exception as e:
     st.error(f"Ошибка инициализации: {str(e)}")
     st.stop()
@@ -313,8 +315,8 @@ with st.sidebar:
         )
 
 # Основная область
-tab1, tab2, tab3 = st.tabs(
-    ["📋 Данные", "📐 Полигоны", "📥 Экспорт"]
+tab1, tab2, tab3, tab4 = st.tabs(
+    ["📋 Данные", "📐 Полигоны", "📥 Экспорт", "📅 Планирование"]
 )
 
 with tab1:
@@ -541,6 +543,163 @@ with tab3:
     else:
         st.info("Сначала создайте полигоны в разделе '📐 Полигоны'")
 
+with tab4:
+    st.header("📅 Формирование плана визитов (АП)")
+    st.markdown("---")
+    
+    # ==============================================
+    # 1. ЗАГРУЗКА ФАЙЛОВ
+    # ==============================================
+    st.subheader("📤 Загрузка файлов АП")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        constant_file = st.file_uploader(
+            "Константа АП",
+            type=['xlsx'],
+            help="Файл с постоянными точками (≈70% плана)",
+            key="constant_uploader"
+        )
+    
+    with col2:
+        variable_file = st.file_uploader(
+            "Переменная АП",
+            type=['xlsx'],
+            help="Файл с переменными точками (≈30% плана)",
+            key="variable_uploader"
+        )
+    
+    with col3:
+        retro_file = st.file_uploader(
+            "Ретро АП",
+            type=['xlsx'],
+            help="Файл с точками из прошлых периодов (max 10%)",
+            key="retro_uploader"
+        )
+    
+    # ==============================================
+    # 2. ЗАГРУЗКА И СТАТИСТИКА
+    # ==============================================
+    if constant_file is not None:
+        with st.spinner("Загрузка данных..."):
+            # Загружаем файлы
+            planning_engine.load_files(constant_file, variable_file, retro_file)
+            
+            # Вычисляем пропорции клиентов
+            if constant_file is not None:
+                client_ratios = planning_engine.calculate_client_ratios()
+                st.session_state['client_ratios'] = client_ratios
+            
+            # Показываем статистику
+            stats = planning_engine.get_statistics()
+            
+            st.success("✅ Данные загружены")
+            
+            st.subheader("📊 Статистика по загруженным данным")
+            
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.metric("Константа (строк)", stats.get('constant_count', 0))
+                st.caption(f"Клиентов: {stats.get('constant_clients', 0)}")
+                st.caption(f"Городов: {stats.get('constant_cities', 0)}")
+            
+            with col2:
+                st.metric("Переменная (строк)", stats.get('variable_count', 0))
+                st.caption(f"Городов: {stats.get('variable_cities', 0)}")
+            
+            with col3:
+                st.metric("Ретро (строк)", stats.get('retro_count', 0))
+                st.caption(f"Аудиторов: {stats.get('retro_auditors', 0)}")
+            
+            # Показываем пропорции клиентов
+            if 'client_ratios' in st.session_state and st.session_state['client_ratios']:
+                with st.expander("📊 Пропорции по клиентам (из Константы)"):
+                    client_ratios = st.session_state['client_ratios']
+                    # Сортируем по убыванию
+                    sorted_clients = sorted(client_ratios.items(), key=lambda x: x[1], reverse=True)
+                    
+                    # Показываем топ-10
+                    st.write("**Топ-10 клиентов:**")
+                    for i, (client, ratio) in enumerate(sorted_clients[:10], 1):
+                        st.write(f"{i}. **{client}** — {ratio:.1f}%")
+                    
+                    if len(sorted_clients) > 10:
+                        st.caption(f"... и еще {len(sorted_clients) - 10} клиентов")
+                    
+                    # Кнопка для скачивания полного списка
+                    if st.button("📥 Скачать полный список клиентов (CSV)"):
+                        import pandas as pd
+                        df_clients = pd.DataFrame(sorted_clients, columns=['Клиент', 'Доля (%)'])
+                        csv = df_clients.to_csv(index=False, encoding='utf-8-sig')
+                        st.download_button(
+                            label="Скачать CSV",
+                            data=csv,
+                            file_name="пропорции_клиентов.csv",
+                            mime="text/csv"
+                        )
+    
+    # ==============================================
+    # 3. ПАРАМЕТРЫ ФОРМИРОВАНИЯ ПЛАНА
+    # ==============================================
+    st.markdown("---")
+    st.subheader("⚙️ Параметры формирования плана")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        target_ap = st.number_input(
+            "Целевой объем АП (месяц)",
+            min_value=1,
+            max_value=100000,
+            value=5000,
+            step=100,
+            help="Общее количество визитов, которое нужно запланировать"
+        )
+        
+        constant_threshold = st.slider(
+            "Порог константы (%)",
+            min_value=50,
+            max_value=100,
+            value=95,
+            help="Минимальный % константы, который должен попасть в АП"
+        )
+    
+    with col2:
+        variable_threshold = st.slider(
+            "Порог переменной (%)",
+            min_value=50,
+            max_value=100,
+            value=95,
+            help="Минимальный % от целевого АП, который должен быть собран"
+        )
+        
+        type_tolerance = st.slider(
+            "Допуск по типам магазинов (%)",
+            min_value=0,
+            max_value=10,
+            value=0,
+            help="Отклонение от пропорций HYPERMARKET/SUPERMARKET/CONVENIENCE"
+        )
+    
+    # ==============================================
+    # 4. КНОПКА ЗАПУСКА
+    # ==============================================
+    st.markdown("---")
+    
+    if st.button("🚀 Сформировать план", type="primary"):
+        if constant_file is None:
+            st.error("❌ Загрузите файл Константы!")
+        else:
+            st.info("🔧 Формирование плана — в разработке (будет в Шаге 3)")
+            st.session_state['plan_params'] = {
+                'target_ap': target_ap,
+                'constant_threshold': constant_threshold,
+                'variable_threshold': variable_threshold,
+                'type_tolerance': type_tolerance
+            }
+            st.success("✅ Параметры сохранены!")
 # Footer
 st.markdown("---")
 st.caption("🚀 Сервис разработан для генерации полигонов аудиторов на основе данных посещений")
