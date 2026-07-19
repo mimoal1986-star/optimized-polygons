@@ -171,7 +171,7 @@ with st.sidebar:
     uploaded_file = st.file_uploader(
         "Загрузите Excel файл с данными",
         type=['xlsx', 'xls'],
-        help="Файл должен содержать колонки: ТП, Дата визита, Гео/ш, Гео/д"
+        help="Файл должен содержать колонки: ТП, Гео/ш, Гео/д"
     )
     
     if uploaded_file is not None:
