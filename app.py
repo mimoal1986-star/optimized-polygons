@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 from data_processor import DataProcessor
-from polygon_generator import PolygonGenerator
 from datetime import datetime
 import json
 import os
