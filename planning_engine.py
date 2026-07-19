@@ -28,32 +28,77 @@ class PlanningEngine:
         
     def load_files(self, constant_file, variable_file, retro_file):
         """
-        Загружает три файла и преобразует координаты
-        (запятая → точка, приведение к float)
-        
-        Args:
-            constant_file: загруженный Excel-файл Константы
-            variable_file: загруженный Excel-файл Переменной
-            retro_file: загруженный Excel-файл Ретро
-            
-        Returns:
-            bool: True если хотя бы Константа загружена
+        Загружает три файла и нормализует названия колонок
         """
+        def normalize_columns(df):
+            """Приводит названия колонок к единому стандарту"""
+            # Словарь: {возможное_название: стандартное_название}
+            mapping = {
+                'latitude': 'Latitude',
+                'lat': 'Latitude',
+                'широта': 'Latitude',
+                'гео/ш': 'Latitude',
+                'longitude': 'Longitude',
+                'lon': 'Longitude',
+                'долгота': 'Longitude',
+                'гео/д': 'Longitude',
+                'город': 'Город',
+                'city': 'Город',
+                'customer name': 'Customer Name',
+                'клиент': 'Customer Name',
+                'red pos group': 'RED PoS Group',
+                'тип': 'RED PoS Group',
+                'type': 'RED PoS Group',
+                'логин': 'логин',
+                'login': 'логин',
+                'auditor': 'логин',
+                'id сотрудника': 'логин',
+            }
+            
+            # Нормализуем названия колонок
+            new_columns = {}
+            for col in df.columns:
+                # Убираем пробелы по краям, приводим к нижнему регистру
+                col_clean = col.strip().lower()
+                # Ищем в маппинге
+                if col_clean in mapping:
+                    new_columns[col] = mapping[col_clean]
+                else:
+                    # Оставляем как есть, но с первой заглавной буквой
+                    new_columns[col] = col.strip().title()
+            
+            return df.rename(columns=new_columns)
+        
+        # Загружаем Константу
         if constant_file is not None:
             self.constant_df = pd.read_excel(constant_file)
-            # Заменяем запятые на точки в координатах
-            self.constant_df['Latitude'] = self.constant_df['Latitude'].astype(str).str.replace(',', '.').astype(float)
-            self.constant_df['Longitude'] = self.constant_df['Longitude'].astype(str).str.replace(',', '.').astype(float)
+            self.constant_df = normalize_columns(self.constant_df)
+            
+            # Преобразуем координаты
+            if 'Latitude' in self.constant_df.columns:
+                self.constant_df['Latitude'] = self.constant_df['Latitude'].astype(str).str.replace(',', '.').astype(float)
+            if 'Longitude' in self.constant_df.columns:
+                self.constant_df['Longitude'] = self.constant_df['Longitude'].astype(str).str.replace(',', '.').astype(float)
         
+        # Загружаем Переменную
         if variable_file is not None:
             self.variable_df = pd.read_excel(variable_file)
-            self.variable_df['Latitude'] = self.variable_df['Latitude'].astype(str).str.replace(',', '.').astype(float)
-            self.variable_df['Longitude'] = self.variable_df['Longitude'].astype(str).str.replace(',', '.').astype(float)
+            self.variable_df = normalize_columns(self.variable_df)
+            
+            if 'Latitude' in self.variable_df.columns:
+                self.variable_df['Latitude'] = self.variable_df['Latitude'].astype(str).str.replace(',', '.').astype(float)
+            if 'Longitude' in self.variable_df.columns:
+                self.variable_df['Longitude'] = self.variable_df['Longitude'].astype(str).str.replace(',', '.').astype(float)
         
+        # Загружаем Ретро
         if retro_file is not None:
             self.retro_df = pd.read_excel(retro_file)
-            self.retro_df['широта'] = self.retro_df['широта'].astype(str).str.replace(',', '.').astype(float)
-            self.retro_df['долгота'] = self.retro_df['долгота'].astype(str).str.replace(',', '.').astype(float)
+            self.retro_df = normalize_columns(self.retro_df)
+            
+            if 'широта' in self.retro_df.columns:
+                self.retro_df['широта'] = self.retro_df['широта'].astype(str).str.replace(',', '.').astype(float)
+            if 'долгота' in self.retro_df.columns:
+                self.retro_df['долгота'] = self.retro_df['долгота'].astype(str).str.replace(',', '.').astype(float)
         
         return self.constant_df is not None
     
