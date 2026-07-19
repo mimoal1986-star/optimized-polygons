@@ -386,8 +386,8 @@ class PlanningEngine:
         selected = []
         
         for _, row in self.retro_df.iterrows():
-            if row['логин'] not in active_clients:
-                continue
+            # if row['логин'] not in active_clients:
+            #     continue
             
             if self.check_point_in_polygons(row['долгота'], row['широта'], retro_polygons):
                 selected.append(row)
