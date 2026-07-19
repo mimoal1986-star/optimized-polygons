@@ -150,7 +150,7 @@ def init_processors():
     return dp
 
 try:
-    data_processor, polygon_generator = init_processors()
+    data_processor = init_processors()
     cluster_engine = ClusterEngine()
     polygon_builder = PolygonBuilder(data_processor)
 except Exception as e:
