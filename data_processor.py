@@ -112,7 +112,7 @@ class DataProcessor:
             
             self.data = {}
             for record in data_list:
-                key = f"{record['tp_id']}_{record['visit_date']}_{record['lat']}_{record['lon']}"
+                key = f"{record['tp_id']}_{record['lat']}_{record['lon']}"
                 self.data[key] = record
             
             content = json.dumps(self.data, indent=2, ensure_ascii=False)
@@ -161,7 +161,7 @@ class DataProcessor:
         try:
             df = pd.read_excel(uploaded_file, dtype=str, engine='openpyxl')
             
-            required_cols = ['ТП', 'Дата визита', 'Гео/ш', 'Гео/д']
+            required_cols = ['ТП', 'Гео/ш', 'Гео/д']
             missing_cols = [col for col in required_cols if col not in df.columns]
             if missing_cols:
                 return None, f"Отсутствуют колонки: {', '.join(missing_cols)}"
@@ -175,18 +175,8 @@ class DataProcessor:
             if df.empty:
                 return None, "Нет данных с корректными координатами"
             
-            df['visit_date'] = pd.to_datetime(
-                df['Дата визита'], 
-                errors='coerce'
-            ).dt.strftime('%Y-%m-%d')
-            df = df.dropna(subset=['visit_date'])
-            
-            if df.empty:
-                return None, "Нет данных с корректными датами"
-            
             df['key'] = (
                 df['ТП'] + '_' + 
-                df['visit_date'] + '_' + 
                 df['lat'].astype(str) + '_' + 
                 df['lon'].astype(str)
             )
@@ -206,9 +196,6 @@ class DataProcessor:
                     'tp_id': tp_id,
                     'auditor': tp_id,
                     'city': str(record.get('Город', '')) if pd.notna(record.get('Город', '')) else '',
-                    'region': str(record.get('Регион', '')) if pd.notna(record.get('Регион', '')) else '',
-                    'address': str(record.get('Адрес (город, адрес)', '')) if pd.notna(record.get('Адрес (город, адрес)', '')) else '',
-                    'visit_date': record['visit_date'],
                     'lat': float(record['lat']),
                     'lon': float(record['lon'])
                 }
@@ -344,12 +331,9 @@ class DataProcessor:
         for key, record in errors.items():
             row = {
                 'ТП': record.get('tp_id', ''),
-                'Дата визита': record.get('visit_date', ''),
                 'Гео/ш': record.get('lat', ''),
                 'Гео/д': record.get('lon', ''),
                 'Город': record.get('city', ''),
-                'Регион': record.get('region', ''),
-                'Адрес (город, адрес)': record.get('address', ''),
             }
             records.append(row)
         
