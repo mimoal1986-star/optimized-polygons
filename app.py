@@ -147,8 +147,7 @@ st.set_page_config(
 @st.cache_resource
 def init_processors():
     dp = DataProcessor()
-    pg = PolygonGenerator(dp)
-    return dp, pg
+    return dp
 
 try:
     data_processor, polygon_generator = init_processors()
