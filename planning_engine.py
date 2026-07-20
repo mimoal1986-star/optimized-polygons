@@ -394,6 +394,8 @@ class PlanningEngine:
                 'utilization': retro_utilization
             }
         }
+
+        final_ap = self.assign_auditors_to_points(final_ap, retro_polygons)
         
         # ==============================================
         # ШАГ 8: Результат
@@ -457,3 +459,74 @@ class PlanningEngine:
                 break
         
         return pd.DataFrame(selected)
+
+    def assign_auditors_to_points(self, final_ap, retro_polygons_data):
+        """
+        Присваивает аудиторов точкам на основе попадания в полигоны.
+        Если точка попала в несколько полигонов — выбирает аудитора с наименьшей нагрузкой.
+        
+        Args:
+            final_ap: DataFrame с точками (должны быть колонки Longitude, Latitude)
+            retro_polygons_data: список словарей с полигонами (каждый содержит 'auditor_id' и 'coordinates')
+        
+        Returns:
+            DataFrame: final_ap с добавленной колонкой 'Аудитор'
+        """
+        if final_ap.empty or not retro_polygons_data:
+            final_ap['Аудитор'] = ''
+            return final_ap
+        
+        # Преобразуем полигоны в shapely объекты с привязкой к аудитору
+        polygon_list = []
+        for poly_data in retro_polygons_data:
+            coords = poly_data['coordinates']
+            if coords and len(coords) >= 3:
+                # Замыкаем полигон если нужно
+                if coords[0] != coords[-1]:
+                    coords = coords + [coords[0]]
+                polygon_list.append({
+                    'auditor_id': poly_data['auditor_id'],
+                    'polygon': Polygon(coords)
+                })
+        
+        if not polygon_list:
+            final_ap['Аудитор'] = ''
+            return final_ap
+        
+        result_df = final_ap.copy()
+        
+        # Словарь для отслеживания текущей нагрузки аудиторов
+        auditor_load = {p['auditor_id']: 0 for p in polygon_list}
+        
+        auditors = []
+        
+        for _, row in result_df.iterrows():
+            point = Point(row['Longitude'], row['Latitude'])
+            
+            # Находим все полигоны, в которые попала точка
+            matched_auditors = []
+            for poly_info in polygon_list:
+                if poly_info['polygon'].contains(point):
+                    matched_auditors.append(poly_info['auditor_id'])
+            
+            if not matched_auditors:
+                # Точка не попала ни в один полигон → аудитор не назначен
+                auditors.append('')
+            elif len(matched_auditors) == 1:
+                # Точка попала только в один полигон
+                auditor = matched_auditors[0]
+                auditors.append(auditor)
+                auditor_load[auditor] = auditor_load.get(auditor, 0) + 1
+            else:
+                # Точка попала в несколько полигонов → выбираем с наименьшей нагрузкой
+                matched_auditors_sorted = sorted(
+                    matched_auditors,
+                    key=lambda a: auditor_load.get(a, 0)
+                )
+                selected_auditor = matched_auditors_sorted[0]
+                auditors.append(selected_auditor)
+                auditor_load[selected_auditor] = auditor_load.get(selected_auditor, 0) + 1
+        
+        result_df['Аудитор'] = auditors
+        
+        return result_df
