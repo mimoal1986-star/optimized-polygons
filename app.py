@@ -434,14 +434,27 @@ with tab2:
                         # Статистика по полигонам
                         cities_count = len(set([p['city'] for p in all_polygons]))
                         
-                        col1, col2, col3 = st.columns(3)
+                        col1, col2, col3, col4 = st.columns(4)
+                        
                         with col1:
-                            st.metric("Всего полигонов", len(all_polygons))
+                            st.metric("Целевой объем", stats.get('target_ap', 0))
+                            st.metric("Фактический объем", stats.get('final_count', 0))
+                            st.metric("Выполнение плана", f"{stats.get('plan_completion', 0):.1f}%")
+                        
                         with col2:
-                            st.metric("Затронуто городов", cities_count)
+                            st.metric("Константа (всего)", stats.get('constant_total', 0))
+                            st.metric("Константа (отобрано)", stats.get('constant_selected', 0))
+                            st.metric("Утилизация константы", f"{stats.get('constant_utilization', 0):.1f}%")
+                        
                         with col3:
-                            total_area = sum([p['area_km2'] for p in all_polygons])
-                            st.metric("Общая площадь (км²)", f"{total_area:.1f}")
+                            st.metric("Переменная (всего)", stats.get('variable_total', 0))
+                            st.metric("Переменная (отобрано)", stats.get('variable_selected', 0))
+                            st.metric("Утилизация переменной", f"{stats.get('variable_utilization', 0):.1f}%")
+                        
+                        with col4:
+                            st.metric("Ретро (всего)", stats.get('retro_total', 0))
+                            st.metric("Ретро (отобрано)", stats.get('retro_selected', 0))
+                            st.metric("Утилизация ретро", f"{stats.get('retro_utilization', 0):.1f}%")
                         
                         st.success(f"✅ Создано {len(all_polygons)} полигонов для {len(auditors)} аудиторов")
                     else:
