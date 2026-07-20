@@ -1,6 +1,6 @@
 import pandas as pd
 import streamlit as st
-from shapely.geometry import Point
+from shapely.geometry import Point, Polygon
 from typing import Dict, Tuple, Optional
 
 class PlanningEngine:
@@ -232,7 +232,21 @@ class PlanningEngine:
         
         if not retro_polygons:
             return {'status': 'error', 'message': 'Сначала создайте ретро-полигоны!'}
+
+        # ==============================================
+        # ПРЕОБРАЗУЕМ retro_polygons В SHAPELY-ПОЛИГОНЫ
+        # ==============================================
+        polygon_geoms = []
+        for poly_data in retro_polygons:
+            coords = poly_data['coordinates']
+            if coords and len(coords) >= 3:
+                if coords[0] != coords[-1]:
+                    coords = coords + [coords[0]]
+                polygon_geoms.append(Polygon(coords))
         
+        if not polygon_geoms:
+            return {'status': 'error', 'message': 'Нет валидных полигонов!'}
+            
         # ==============================================
         # ШАГ 1: Отбор Константы → формируем основу АП
         # ==============================================
@@ -240,7 +254,16 @@ class PlanningEngine:
         constant_total = len(self.constant_df)
         
         for _, row in self.constant_df.iterrows():
-            if self.check_point_in_polygons(row['Longitude'], row['Latitude'], retro_polygons):
+            point = Point(row['Longitude'], row['Latitude'])
+            assigned_auditor = ''
+            
+            for i, poly_geom in enumerate(polygon_geoms):
+                if poly_geom.contains(point):
+                    assigned_auditor = retro_polygons[i]['auditor_id']
+                    break
+            
+            if assigned_auditor:
+                row['Аудитор'] = assigned_auditor
                 constant_selected.append(row)
         
         constant_selected_df = pd.DataFrame(constant_selected)
@@ -263,7 +286,16 @@ class PlanningEngine:
             # Отбираем все точки Переменной, попавшие в полигоны
             variable_all = []
             for _, row in self.variable_df.iterrows():
-                if self.check_point_in_polygons(row['Longitude'], row['Latitude'], retro_polygons):
+                point = Point(row['Longitude'], row['Latitude'])
+                assigned_auditor = ''
+                
+                for i, poly_geom in enumerate(polygon_geoms):
+                    if poly_geom.contains(point):
+                        assigned_auditor = retro_polygons[i]['auditor_id']
+                        break
+                
+                if assigned_auditor:
+                    row['Аудитор'] = assigned_auditor
                     variable_all.append(row)
             
             variable_all_df = pd.DataFrame(variable_all)
@@ -298,8 +330,16 @@ class PlanningEngine:
             # Отбираем все точки Ретро, попавшие в полигоны
             retro_all = []
             for _, row in self.retro_df.iterrows():
-                # Используем унифицированные названия колонок
-                if self.check_point_in_polygons(row['Longitude'], row['Latitude'], retro_polygons):
+                point = Point(row['Longitude'], row['Latitude'])
+                assigned_auditor = ''
+                
+                for i, poly_geom in enumerate(polygon_geoms):
+                    if poly_geom.contains(point):
+                        assigned_auditor = retro_polygons[i]['auditor_id']
+                        break
+                
+                if assigned_auditor:
+                    row['Аудитор'] = assigned_auditor
                     retro_all.append(row)
             
             retro_all_df = pd.DataFrame(retro_all)
