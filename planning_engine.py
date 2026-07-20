@@ -97,6 +97,9 @@ class PlanningEngine:
             lat_col = None
             lon_col = None
             login_col = None
+            type_col = None
+            address_col = None
+            city_col = None
             
             for col in self.retro_df.columns:
                 col_lower = col.lower().strip()
@@ -106,16 +109,29 @@ class PlanningEngine:
                     lon_col = col
                 elif col_lower in ['логин', 'login', 'auditor', 'id сотрудника', 'тп']:
                     login_col = col
+                elif col_lower in ['тип', 'type', 'red pos group']:
+                    type_col = col
+                elif col_lower in ['адрес', 'address', 'street name']:
+                    address_col = col
+                elif col_lower in ['город', 'city']:
+                    city_col = col
             
             if lat_col:
-                self.retro_df = self.retro_df.rename(columns={lat_col: 'широта'})
+                self.retro_df = self.retro_df.rename(columns={lat_col: 'Latitude'})
             if lon_col:
-                self.retro_df = self.retro_df.rename(columns={lon_col: 'долгота'})
+                self.retro_df = self.retro_df.rename(columns={lon_col: 'Longitude'})
             if login_col:
                 self.retro_df = self.retro_df.rename(columns={login_col: 'логин'})
+            if type_col:
+                self.retro_df = self.retro_df.rename(columns={type_col: 'RED PoS Group'})
+            if address_col:
+                self.retro_df = self.retro_df.rename(columns={address_col: 'Street Name'})
+            if city_col:
+                self.retro_df = self.retro_df.rename(columns={city_col: 'Город'})
             
-            self.retro_df['широта'] = self.retro_df['широта'].astype(str).str.replace(',', '.').astype(float)
-            self.retro_df['долгота'] = self.retro_df['долгота'].astype(str).str.replace(',', '.').astype(float)
+            # Преобразуем координаты
+            self.retro_df['Latitude'] = self.retro_df['Latitude'].astype(str).str.replace(',', '.').astype(float)
+            self.retro_df['Longitude'] = self.retro_df['Longitude'].astype(str).str.replace(',', '.').astype(float)
         
         return self.constant_df is not None
     
