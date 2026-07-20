@@ -287,12 +287,28 @@ class PlanningEngine:
         # ==============================================
         # ШАГ 5: Формирование финальной АП
         # ==============================================
+        
+        # Добавляем колонку Источник для каждого источника
+        constant_selected_df = constant_selected_df.copy()
+        if not constant_selected_df.empty:
+            constant_selected_df['Источник'] = 'Константа'
+        
+        variable_selected_df = variable_selected_df.copy()
+        if not variable_selected_df.empty:
+            variable_selected_df['Источник'] = 'Переменная'
+        
+        retro_selected_df = retro_selected_df.copy()
+        if not retro_selected_df.empty:
+            retro_selected_df['Источник'] = 'Ретро'
+        
+        # Объединяем все источники
         final_ap = pd.concat([
             constant_selected_df,
             variable_selected_df,
             retro_selected_df
         ], ignore_index=True)
         
+        # Удаляем дубликаты
         final_ap = final_ap.drop_duplicates(subset=['Longitude', 'Latitude'])
         
         # ==============================================
