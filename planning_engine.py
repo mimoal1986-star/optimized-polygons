@@ -1,6 +1,6 @@
 import pandas as pd
 import streamlit as st
-from shapely.geometry import Point
+from shapely.geometry import Point, Polygon
 from typing import Dict, Tuple, Optional
 
 class PlanningEngine:
@@ -517,4 +517,3 @@ class PlanningEngine:
         
         return pd.DataFrame(selected)
         
-        return result_df
