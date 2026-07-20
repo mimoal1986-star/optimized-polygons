@@ -206,7 +206,9 @@ class PlanningEngine:
     
     def build_plan(self, retro_polygons, target_ap, constant_threshold=95, variable_threshold=95, type_tolerance=0):
         """
-        Формирует план визитов (АП) на основе трех источников
+        Формирует план визитов (АП) на основе трех источников.
+        Всегда добирает до 100% целевого объема, используя Ретро при необходимости.
+        Проверки — мягкие, только предупреждения.
         """
         if self.constant_df is None:
             return {'status': 'error', 'message': 'Загрузите файл Константы!'}
@@ -227,11 +229,6 @@ class PlanningEngine:
         constant_selected_df = pd.DataFrame(constant_selected)
         constant_utilization = (len(constant_selected_df) / constant_total * 100) if constant_total > 0 else 0
         
-        # === МЯГКАЯ ПРОВЕРКА: запоминаем предупреждение, но продолжаем ===
-        constant_warning = None
-        if constant_utilization < constant_threshold:
-            constant_warning = f'⚠️ Константа: {constant_utilization:.1f}% (< {constant_threshold}%)'
-        
         # ==============================================
         # ШАГ 2: Отбор Переменной
         # ==============================================
@@ -250,14 +247,52 @@ class PlanningEngine:
             variable_utilization = 0
         
         # ==============================================
-        # ШАГ 3: Проверка пропорций по типам (МЯГКАЯ)
+        # ШАГ 3: Формирование финальной АП (НОВАЯ ЛОГИКА)
         # ==============================================
-        temp_ap = pd.concat([constant_selected_df, variable_selected_df], ignore_index=True)
         
+        # 1. Начинаем с Константы
+        final_ap = constant_selected_df.copy()
+        final_ap['Источник'] = 'Константа'
+        
+        # 2. Добавляем Переменную
+        if not variable_selected_df.empty:
+            variable_selected_df = variable_selected_df.copy()
+            variable_selected_df['Источник'] = 'Переменная'
+            final_ap = pd.concat([final_ap, variable_selected_df], ignore_index=True)
+        
+        # 3. Считаем, сколько еще нужно до target_ap
+        current_count = len(final_ap)
+        needed = max(0, target_ap - current_count)
+        
+        # 4. Если не хватает — добираем из Ретро
+        retro_selected_df = pd.DataFrame()
+        if needed > 0 and self.retro_df is not None and not self.retro_df.empty:
+            retro_selected_df = self._select_retro_points(
+                retro_polygons, 
+                needed,
+                self.constant_df['Customer Name'].unique().tolist()
+            )
+            if not retro_selected_df.empty:
+                retro_selected_df = retro_selected_df.copy()
+                retro_selected_df['Источник'] = 'Ретро'
+                final_ap = pd.concat([final_ap, retro_selected_df], ignore_index=True)
+        
+        # 5. Удаляем дубликаты
+        final_ap = final_ap.drop_duplicates(subset=['Longitude', 'Latitude'])
+        
+        # ==============================================
+        # ШАГ 4: Финальная статистика
+        # ==============================================
+        final_count = len(final_ap)
+        plan_completion = (final_count / target_ap * 100) if target_ap > 0 else 0
+        
+        # ==============================================
+        # ШАГ 5: Проверка пропорций по типам (мягкая)
+        # ==============================================
         type_warnings = []
-        if len(temp_ap) > 0:
-            type_counts = temp_ap['RED PoS Group'].value_counts()
-            total = len(temp_ap)
+        if len(final_ap) > 0:
+            type_counts = final_ap['RED PoS Group'].value_counts()
+            total = len(final_ap)
             
             for type_name, expected_ratio in self.type_ratios.items():
                 actual_count = type_counts.get(type_name, 0)
@@ -271,52 +306,28 @@ class PlanningEngine:
                     )
         
         # ==============================================
-        # ШАГ 4: Проверка выполнения целевого объема
+        # ШАГ 6: Формируем предупреждения (мягкие проверки)
         # ==============================================
-        current_count = len(temp_ap)
+        warnings = []
         
-        if current_count < target_ap * (variable_threshold / 100):
-            retro_selected_df = self._select_retro_points(
-                retro_polygons, 
-                target_ap - current_count,
-                self.constant_df['Customer Name'].unique().tolist()
-            )
-        else:
-            retro_selected_df = pd.DataFrame()
+        # Проверка утилизации Константы
+        if constant_utilization < constant_threshold:
+            warnings.append(f'⚠️ Константа: {constant_utilization:.1f}% (< {constant_threshold}%)')
         
-        # ==============================================
-        # ШАГ 5: Формирование финальной АП
-        # ==============================================
+        # Проверка утилизации Переменной
+        if variable_utilization < variable_threshold:
+            warnings.append(f'⚠️ Переменная: {variable_utilization:.1f}% (< {variable_threshold}%)')
         
-        # Добавляем колонку Источник для каждого источника
-        constant_selected_df = constant_selected_df.copy()
-        if not constant_selected_df.empty:
-            constant_selected_df['Источник'] = 'Константа'
+        # Проверка выполнения плана
+        if plan_completion < 95:
+            warnings.append(f'⚠️ План выполнен только на {plan_completion:.1f}% (цель {target_ap})')
         
-        variable_selected_df = variable_selected_df.copy()
-        if not variable_selected_df.empty:
-            variable_selected_df['Источник'] = 'Переменная'
-        
-        retro_selected_df = retro_selected_df.copy()
-        if not retro_selected_df.empty:
-            retro_selected_df['Источник'] = 'Ретро'
-        
-        # Объединяем все источники
-        final_ap = pd.concat([
-            constant_selected_df,
-            variable_selected_df,
-            retro_selected_df
-        ], ignore_index=True)
-        
-        # Удаляем дубликаты
-        final_ap = final_ap.drop_duplicates(subset=['Longitude', 'Latitude'])
+        # Добавляем предупреждения по типам
+        warnings.extend(type_warnings)
         
         # ==============================================
-        # ШАГ 6: Статистика
+        # ШАГ 7: Утилизация
         # ==============================================
-        final_count = len(final_ap)
-        plan_completion = (final_count / target_ap * 100) if target_ap > 0 else 0
-        
         utilization = {
             'constant': {
                 'total': constant_total,
@@ -336,14 +347,8 @@ class PlanningEngine:
         }
         
         # ==============================================
-        # ШАГ 7: Формируем результат с предупреждениями
+        # ШАГ 8: Формируем результат
         # ==============================================
-        warnings = []
-        if constant_warning:
-            warnings.append(constant_warning)
-        if type_warnings:
-            warnings.extend(type_warnings)
-        
         status = 'success' if not warnings else 'warning'
         message = f'✅ План сформирован: {final_count} из {target_ap} ({plan_completion:.1f}%)'
         if warnings:
@@ -367,7 +372,7 @@ class PlanningEngine:
                 'variable_total': variable_total,
                 'variable_selected': len(variable_selected_df),
                 'variable_utilization': variable_utilization,
-                'retro_total': len(self.retro_df) if self.retro_df is not None else 0,  # ← ДОБАВИТЬ
+                'retro_total': len(self.retro_df) if self.retro_df is not None else 0,
                 'retro_selected': len(retro_selected_df),
                 'retro_utilization': (len(retro_selected_df) / len(self.retro_df) * 100) if self.retro_df is not None and len(self.retro_df) > 0 else 0
             },
