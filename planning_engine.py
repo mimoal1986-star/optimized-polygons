@@ -203,11 +203,19 @@ class PlanningEngine:
         
         return False
 
-    
     def build_plan(self, retro_polygons, target_ap, constant_threshold=95, variable_threshold=95, type_tolerance=0):
         """
-        Формирует план визитов (АП) на основе трех источников.
-        Всегда добирает до 100% целевого объема, используя Ретро при необходимости.
+        Формирует план визитов (АП) на основе трёх источников.
+        
+        Логика:
+        1. ШАГ 1: Отбор Константы — все точки, попавшие в полигоны
+        2. ШАГ 2: Отбор Переменной — все точки, попавшие в полигоны
+        3. ШАГ 3: Отбор Ретро — все точки, попавшие в полигоны
+        4. ШАГ 4: Формирование финальной АП:
+           - Константа → вся
+           - Переменная → добираем до target_ap
+           - Ретро → добираем до target_ap (если не хватило Переменной)
+        
         Проверки — мягкие, только предупреждения.
         """
         if self.constant_df is None:
@@ -247,47 +255,61 @@ class PlanningEngine:
             variable_utilization = 0
         
         # ==============================================
-        # ШАГ 3: Формирование финальной АП (НОВАЯ ЛОГИКА)
+        # ШАГ 3: Отбор Ретро
+        # ==============================================
+        retro_selected = []
+        retro_total = len(self.retro_df) if self.retro_df is not None else 0
+        
+        if self.retro_df is not None and retro_total > 0:
+            for _, row in self.retro_df.iterrows():
+                if self.check_point_in_polygons(row['долгота'], row['широта'], retro_polygons):
+                    retro_selected.append(row)
+            
+            retro_all_selected_df = pd.DataFrame(retro_selected)
+            retro_utilization = (len(retro_all_selected_df) / retro_total * 100) if retro_total > 0 else 0
+        else:
+            retro_all_selected_df = pd.DataFrame()
+            retro_utilization = 0
+        
+        # ==============================================
+        # ШАГ 4: Формирование финальной АП
         # ==============================================
         
-        # 1. Начинаем с Константы
+        # 1. Начинаем с Константы (все точки)
         final_ap = constant_selected_df.copy()
         final_ap['Источник'] = 'Константа'
         
-        # 2. Добавляем Переменную
+        # 2. Добавляем Переменную (только до target_ap)
         if not variable_selected_df.empty:
-            variable_selected_df = variable_selected_df.copy()
-            variable_selected_df['Источник'] = 'Переменная'
-            final_ap = pd.concat([final_ap, variable_selected_df], ignore_index=True)
+            current_count = len(final_ap)
+            needed_from_variable = max(0, target_ap - current_count)
+            
+            if needed_from_variable > 0:
+                variable_to_add = variable_selected_df.head(needed_from_variable).copy()
+                variable_to_add['Источник'] = 'Переменная'
+                final_ap = pd.concat([final_ap, variable_to_add], ignore_index=True)
         
-        # 3. Считаем, сколько еще нужно до target_ap
-        current_count = len(final_ap)
-        needed = max(0, target_ap - current_count)
+        # 3. Добавляем Ретро (только до target_ap)
+        if not retro_all_selected_df.empty:
+            current_count = len(final_ap)
+            needed_from_retro = max(0, target_ap - current_count)
+            
+            if needed_from_retro > 0:
+                retro_to_add = retro_all_selected_df.head(needed_from_retro).copy()
+                retro_to_add['Источник'] = 'Ретро'
+                final_ap = pd.concat([final_ap, retro_to_add], ignore_index=True)
         
-        # 4. Если не хватает — добираем из Ретро
-        retro_selected_df = pd.DataFrame()
-        if needed > 0 and self.retro_df is not None and not self.retro_df.empty:
-            retro_selected_df = self._select_retro_points(
-                retro_polygons, 
-                needed,
-                self.constant_df['Customer Name'].unique().tolist()
-            )
-            if not retro_selected_df.empty:
-                retro_selected_df = retro_selected_df.copy()
-                retro_selected_df['Источник'] = 'Ретро'
-                final_ap = pd.concat([final_ap, retro_selected_df], ignore_index=True)
-        
-        # 5. Удаляем дубликаты
+        # 4. Удаляем дубликаты
         final_ap = final_ap.drop_duplicates(subset=['Longitude', 'Latitude'])
         
         # ==============================================
-        # ШАГ 4: Финальная статистика
+        # ШАГ 5: Финальная статистика
         # ==============================================
         final_count = len(final_ap)
         plan_completion = (final_count / target_ap * 100) if target_ap > 0 else 0
         
         # ==============================================
-        # ШАГ 5: Проверка пропорций по типам (мягкая)
+        # ШАГ 6: Проверка пропорций по типам (мягкая)
         # ==============================================
         type_warnings = []
         if len(final_ap) > 0:
@@ -306,7 +328,7 @@ class PlanningEngine:
                     )
         
         # ==============================================
-        # ШАГ 6: Формируем предупреждения (мягкие проверки)
+        # ШАГ 7: Формируем предупреждения (мягкие проверки)
         # ==============================================
         warnings = []
         
@@ -318,7 +340,7 @@ class PlanningEngine:
         if variable_utilization < variable_threshold:
             warnings.append(f'⚠️ Переменная: {variable_utilization:.1f}% (< {variable_threshold}%)')
         
-        # Проверка выполнения плана
+        # Проверка выполнения плана (если не удалось собрать 100%)
         if plan_completion < 95:
             warnings.append(f'⚠️ План выполнен только на {plan_completion:.1f}% (цель {target_ap})')
         
@@ -326,7 +348,7 @@ class PlanningEngine:
         warnings.extend(type_warnings)
         
         # ==============================================
-        # ШАГ 7: Утилизация
+        # ШАГ 8: Утилизация
         # ==============================================
         utilization = {
             'constant': {
@@ -340,14 +362,14 @@ class PlanningEngine:
                 'utilization': variable_utilization
             },
             'retro': {
-                'total': len(self.retro_df) if self.retro_df is not None else 0,
-                'selected': len(retro_selected_df),
-                'utilization': (len(retro_selected_df) / len(self.retro_df) * 100) if self.retro_df is not None and len(self.retro_df) > 0 else 0
+                'total': retro_total,
+                'selected': len(retro_all_selected_df),
+                'utilization': retro_utilization
             }
         }
         
         # ==============================================
-        # ШАГ 8: Формируем результат
+        # ШАГ 9: Формируем результат
         # ==============================================
         status = 'success' if not warnings else 'warning'
         message = f'✅ План сформирован: {final_count} из {target_ap} ({plan_completion:.1f}%)'
@@ -361,7 +383,7 @@ class PlanningEngine:
             'final_ap': final_ap,
             'constant_selected': constant_selected_df,
             'variable_selected': variable_selected_df,
-            'retro_selected': retro_selected_df,
+            'retro_selected': retro_all_selected_df,
             'statistics': {
                 'target_ap': target_ap,
                 'final_count': final_count,
@@ -372,9 +394,9 @@ class PlanningEngine:
                 'variable_total': variable_total,
                 'variable_selected': len(variable_selected_df),
                 'variable_utilization': variable_utilization,
-                'retro_total': len(self.retro_df) if self.retro_df is not None else 0,
-                'retro_selected': len(retro_selected_df),
-                'retro_utilization': (len(retro_selected_df) / len(self.retro_df) * 100) if self.retro_df is not None and len(self.retro_df) > 0 else 0
+                'retro_total': retro_total,
+                'retro_selected': len(retro_all_selected_df),
+                'retro_utilization': retro_utilization
             },
             'utilization': utilization
         }
