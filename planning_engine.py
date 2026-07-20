@@ -202,27 +202,11 @@ class PlanningEngine:
                 return True
         
         return False
-        
 
+    
     def build_plan(self, retro_polygons, target_ap, constant_threshold=95, variable_threshold=95, type_tolerance=0):
         """
         Формирует план визитов (АП) на основе трех источников
-        
-        Args:
-            retro_polygons: список полигонов из st.session_state['polygons']
-            target_ap: целевой объем АП (месяц)
-            constant_threshold: минимальный % константы в АП (по умолчанию 95%)
-            variable_threshold: минимальный % от целевого АП для переменной (по умолчанию 95%)
-            type_tolerance: допуск по типам магазинов в % (по умолчанию 0)
-        
-        Returns:
-            dict: {
-                'status': 'success' | 'warning' | 'error',
-                'message': str,
-                'final_ap': DataFrame,
-                'statistics': dict,
-                'utilization': dict
-            }
         """
         if self.constant_df is None:
             return {'status': 'error', 'message': 'Загрузите файл Константы!'}
@@ -243,19 +227,10 @@ class PlanningEngine:
         constant_selected_df = pd.DataFrame(constant_selected)
         constant_utilization = (len(constant_selected_df) / constant_total * 100) if constant_total > 0 else 0
         
-        # Проверка порога константы
+        # === МЯГКАЯ ПРОВЕРКА: запоминаем предупреждение, но продолжаем ===
+        constant_warning = None
         if constant_utilization < constant_threshold:
-            return {
-                'status': 'warning',
-                'message': f'⚠️ Константа: {constant_utilization:.1f}% (< {constant_threshold}%)',
-                'constant_selected': constant_selected_df,
-                'constant_utilization': constant_utilization,
-                'statistics': {
-                    'constant_total': constant_total,
-                    'constant_selected': len(constant_selected_df),
-                    'constant_utilization': constant_utilization
-                }
-            }
+            constant_warning = f'⚠️ Константа: {constant_utilization:.1f}% (< {constant_threshold}%)'
         
         # ==============================================
         # ШАГ 2: Отбор Переменной
@@ -275,43 +250,25 @@ class PlanningEngine:
             variable_utilization = 0
         
         # ==============================================
-        # ШАГ 3: Проверка пропорций по типам
+        # ШАГ 3: Проверка пропорций по типам (МЯГКАЯ)
         # ==============================================
         temp_ap = pd.concat([constant_selected_df, variable_selected_df], ignore_index=True)
         
+        type_warnings = []
         if len(temp_ap) > 0:
             type_counts = temp_ap['RED PoS Group'].value_counts()
             total = len(temp_ap)
             
-            type_errors = []
             for type_name, expected_ratio in self.type_ratios.items():
                 actual_count = type_counts.get(type_name, 0)
                 actual_ratio = (actual_count / total * 100) if total > 0 else 0
                 deviation = abs(actual_ratio - expected_ratio)
                 
                 if deviation > type_tolerance:
-                    type_errors.append(
+                    type_warnings.append(
                         f"{type_name}: ожидалось {expected_ratio:.2f}%, "
                         f"получено {actual_ratio:.2f}% (отклонение {deviation:.2f}%)"
                     )
-            
-            if type_errors:
-                return {
-                    'status': 'warning',
-                    'message': '⚠️ Нарушены пропорции по типам магазинов',
-                    'type_errors': type_errors,
-                    'constant_selected': constant_selected_df,
-                    'variable_selected': variable_selected_df,
-                    'statistics': {
-                        'constant_total': constant_total,
-                        'constant_selected': len(constant_selected_df),
-                        'constant_utilization': constant_utilization,
-                        'variable_total': variable_total,
-                        'variable_selected': len(variable_selected_df),
-                        'variable_utilization': variable_utilization,
-                        'total_selected': len(temp_ap)
-                    }
-                }
         
         # ==============================================
         # ШАГ 4: Проверка выполнения целевого объема
@@ -362,9 +319,24 @@ class PlanningEngine:
             }
         }
         
+        # ==============================================
+        # ШАГ 7: Формируем результат с предупреждениями
+        # ==============================================
+        warnings = []
+        if constant_warning:
+            warnings.append(constant_warning)
+        if type_warnings:
+            warnings.extend(type_warnings)
+        
+        status = 'success' if not warnings else 'warning'
+        message = f'✅ План сформирован: {final_count} из {target_ap} ({plan_completion:.1f}%)'
+        if warnings:
+            message = f'⚠️ План сформирован с предупреждениями: {final_count} из {target_ap} ({plan_completion:.1f}%)'
+        
         return {
-            'status': 'success',
-            'message': f'✅ План сформирован: {final_count} из {target_ap} ({plan_completion:.1f}%)',
+            'status': status,
+            'message': message,
+            'warnings': warnings,
             'final_ap': final_ap,
             'constant_selected': constant_selected_df,
             'variable_selected': variable_selected_df,
