@@ -363,14 +363,14 @@ class PlanningEngine:
                 'plan_completion': plan_completion,
                 'constant_total': constant_total,
                 'constant_selected': len(constant_selected_df),
+                'constant_utilization': constant_utilization,
                 'variable_total': variable_total,
                 'variable_selected': len(variable_selected_df),
+                'variable_utilization': variable_utilization,
+                'retro_total': len(self.retro_df) if self.retro_df is not None else 0,  # ← ДОБАВИТЬ
                 'retro_selected': len(retro_selected_df),
-                'constant_utilization': constant_utilization,
-                'variable_utilization': variable_utilization
-            },
-            'utilization': utilization
-        }
+                'retro_utilization': (len(retro_selected_df) / len(self.retro_df) * 100) if self.retro_df is not None and len(self.retro_df) > 0 else 0
+            }
 
 
     def _select_retro_points(self, retro_polygons, needed_count, active_clients):
