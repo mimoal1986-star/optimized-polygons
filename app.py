@@ -755,7 +755,7 @@ with tab4:
                         
                         st.subheader("📊 Статистика формирования плана")
                         
-                        col1, col2, col3 = st.columns(3)
+                        col1, col2, col3, col4 = st.columns(4)
                         
                         with col1:
                             st.metric("Целевой объем", stats.get('target_ap', 0))
@@ -771,6 +771,11 @@ with tab4:
                             st.metric("Переменная (всего)", stats.get('variable_total', 0))
                             st.metric("Переменная (отобрано)", stats.get('variable_selected', 0))
                             st.metric("Утилизация переменной", f"{stats.get('variable_utilization', 0):.1f}%")
+                        
+                        with col4:
+                            st.metric("Ретро (всего)", stats.get('retro_total', 0))
+                            st.metric("Ретро (отобрано)", stats.get('retro_selected', 0))
+                            st.metric("Утилизация ретро", f"{stats.get('retro_utilization', 0):.1f}%")
                         
                         # 3. Детальная утилизация
                         with st.expander("📊 Детальная утилизация источников"):
