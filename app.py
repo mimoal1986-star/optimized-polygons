@@ -673,7 +673,7 @@ with tab4:
         
         constant_threshold = st.slider(
             "Порог константы (%)",
-            min_value=50,
+            min_value=0,
             max_value=100,
             value=95,
             help="Минимальный % константы, который должен попасть в АП"
@@ -682,7 +682,7 @@ with tab4:
     with col2:
         variable_threshold = st.slider(
             "Порог переменной (%)",
-            min_value=50,
+            min_value=0,
             max_value=100,
             value=95,
             help="Минимальный % от целевого АП, который должен быть собран"
