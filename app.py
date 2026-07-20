@@ -722,7 +722,7 @@ with tab4:
                     else:
                         # Запускаем формирование плана
                         result = planning_engine.build_plan(
-                            retro_polygons=polygon_geoms,
+                            retro_polygons=retro_polygons,
                             target_ap=target_ap,
                             constant_threshold=constant_threshold,
                             variable_threshold=variable_threshold,
@@ -829,7 +829,7 @@ with tab4:
                                 export_df['Источник'] = export_df.index.map(get_source)
                             
                             # Выбираем нужные колонки
-                            columns_order = ['Customer Name', 'RED PoS Group', 'Город', 'Street Name', 'Longitude', 'Latitude', 'Источник']
+                            columns_order = ['Аудитор', 'Customer Name', 'RED PoS Group', 'Город', 'Street Name', 'Longitude', 'Latitude', 'Источник']
                             available_cols = [col for col in columns_order if col in export_df.columns]
                             export_df = export_df[available_cols]
                             
