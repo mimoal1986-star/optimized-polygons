@@ -202,21 +202,14 @@ class PlanningEngine:
                 return True
         
         return False
-
+        
     def build_plan(self, retro_polygons, target_ap, constant_threshold=95, variable_threshold=95, type_tolerance=0):
         """
-        Формирует план визитов (АП) на основе трёх источников.
-        
-        Логика:
-        1. ШАГ 1: Отбор Константы — все точки, попавшие в полигоны
-        2. ШАГ 2: Отбор Переменной — все точки, попавшие в полигоны
-        3. ШАГ 3: Отбор Ретро — все точки, попавшие в полигоны
-        4. ШАГ 4: Формирование финальной АП:
-           - Константа → вся
-           - Переменная → добираем до target_ap
-           - Ретро → добираем до target_ap (если не хватило Переменной)
-        
-        Проверки — мягкие, только предупреждения.
+        Формирует план визитов (АП) по трёхэтапной логике:
+        1. Константа → основа
+        2. Переменная → добираем до 100% (без дубликатов)
+        3. Ретро → добираем до 100% (без дубликатов)
+        Статистика считается только по факту попадания в final_ap
         """
         if self.constant_df is None:
             return {'status': 'error', 'message': 'Загрузите файл Константы!'}
@@ -225,7 +218,7 @@ class PlanningEngine:
             return {'status': 'error', 'message': 'Сначала создайте ретро-полигоны!'}
         
         # ==============================================
-        # ШАГ 1: Отбор Константы
+        # ШАГ 1: Отбор Константы → формируем основу АП
         # ==============================================
         constant_selected = []
         constant_total = len(self.constant_df)
@@ -235,81 +228,102 @@ class PlanningEngine:
                 constant_selected.append(row)
         
         constant_selected_df = pd.DataFrame(constant_selected)
-        constant_utilization = (len(constant_selected_df) / constant_total * 100) if constant_total > 0 else 0
         
-        # ==============================================
-        # ШАГ 2: Отбор Переменной
-        # ==============================================
-        variable_selected = []
-        variable_total = len(self.variable_df) if self.variable_df is not None else 0
-        
-        if self.variable_df is not None and variable_total > 0:
-            for _, row in self.variable_df.iterrows():
-                if self.check_point_in_polygons(row['Longitude'], row['Latitude'], retro_polygons):
-                    variable_selected.append(row)
-            
-            variable_selected_df = pd.DataFrame(variable_selected)
-            variable_utilization = (len(variable_selected_df) / variable_total * 100) if variable_total > 0 else 0
-        else:
-            variable_selected_df = pd.DataFrame()
-            variable_utilization = 0
-        
-        # ==============================================
-        # ШАГ 3: Отбор Ретро
-        # ==============================================
-        retro_selected = []
-        retro_total = len(self.retro_df) if self.retro_df is not None else 0
-        
-        if self.retro_df is not None and retro_total > 0:
-            for _, row in self.retro_df.iterrows():
-                if self.check_point_in_polygons(row['долгота'], row['широта'], retro_polygons):
-                    retro_selected.append(row)
-            
-            retro_all_selected_df = pd.DataFrame(retro_selected)
-            retro_utilization = (len(retro_all_selected_df) / retro_total * 100) if retro_total > 0 else 0
-        else:
-            retro_all_selected_df = pd.DataFrame()
-            retro_utilization = 0
-        
-        # ==============================================
-        # ШАГ 4: Формирование финальной АП
-        # ==============================================
-        
-        # 1. Начинаем с Константы (все точки)
+        # Формируем финальную АП из Константы
         final_ap = constant_selected_df.copy()
         final_ap['Источник'] = 'Константа'
         
-        # 2. Добавляем Переменную (только до target_ap)
-        if not variable_selected_df.empty:
-            current_count = len(final_ap)
-            needed_from_variable = max(0, target_ap - current_count)
+        # Проверяем, достигнут ли target_ap
+        if len(final_ap) >= target_ap:
+            # Статистика считается в конце
+            pass  # переходим к статистике
+        
+        # ==============================================
+        # ШАГ 2: Отбор Переменной → добираем до target_ap
+        # ==============================================
+        variable_total = len(self.variable_df) if self.variable_df is not None else 0
+        
+        if self.variable_df is not None and variable_total > 0:
+            # Отбираем все точки Переменной, попавшие в полигоны
+            variable_all = []
+            for _, row in self.variable_df.iterrows():
+                if self.check_point_in_polygons(row['Longitude'], row['Latitude'], retro_polygons):
+                    variable_all.append(row)
             
-            if needed_from_variable > 0:
-                variable_to_add = variable_selected_df.head(needed_from_variable).copy()
+            variable_all_df = pd.DataFrame(variable_all)
+            
+            # Удаляем дубликаты с текущей final_ap (по координатам)
+            if not variable_all_df.empty and not final_ap.empty:
+                # Создаём множество координат из final_ap
+                existing_coords = set(zip(final_ap['Longitude'], final_ap['Latitude']))
+                # Оставляем только те точки, которых нет в final_ap
+                variable_all_df = variable_all_df[
+                    ~variable_all_df.apply(
+                        lambda row: (row['Longitude'], row['Latitude']) in existing_coords,
+                        axis=1
+                    )
+                ]
+            
+            # Берём только сколько не хватает до target_ap
+            current_count = len(final_ap)
+            needed = max(0, target_ap - current_count)
+            
+            if needed > 0 and not variable_all_df.empty:
+                variable_to_add = variable_all_df.head(needed).copy()
                 variable_to_add['Источник'] = 'Переменная'
                 final_ap = pd.concat([final_ap, variable_to_add], ignore_index=True)
         
-        # 3. Добавляем Ретро (только до target_ap)
-        if not retro_all_selected_df.empty:
-            current_count = len(final_ap)
-            needed_from_retro = max(0, target_ap - current_count)
+        # ==============================================
+        # ШАГ 3: Отбор Ретро → добираем до target_ap
+        # ==============================================
+        retro_total = len(self.retro_df) if self.retro_df is not None else 0
+        
+        if self.retro_df is not None and retro_total > 0:
+            # Отбираем все точки Ретро, попавшие в полигоны
+            retro_all = []
+            for _, row in self.retro_df.iterrows():
+                if self.check_point_in_polygons(row['долгота'], row['широта'], retro_polygons):
+                    retro_all.append(row)
             
-            if needed_from_retro > 0:
-                retro_to_add = retro_all_selected_df.head(needed_from_retro).copy()
+            retro_all_df = pd.DataFrame(retro_all)
+            
+            # Удаляем дубликаты с текущей final_ap (по координатам)
+            if not retro_all_df.empty and not final_ap.empty:
+                existing_coords = set(zip(final_ap['Longitude'], final_ap['Latitude']))
+                retro_all_df = retro_all_df[
+                    ~retro_all_df.apply(
+                        lambda row: (row['долгота'], row['широта']) in existing_coords,
+                        axis=1
+                    )
+                ]
+            
+            # Берём только сколько не хватает до target_ap
+            current_count = len(final_ap)
+            needed = max(0, target_ap - current_count)
+            
+            if needed > 0 and not retro_all_df.empty:
+                retro_to_add = retro_all_df.head(needed).copy()
                 retro_to_add['Источник'] = 'Ретро'
                 final_ap = pd.concat([final_ap, retro_to_add], ignore_index=True)
         
-        # 4. Удаляем дубликаты
-        final_ap = final_ap.drop_duplicates(subset=['Longitude', 'Latitude'])
-        
         # ==============================================
-        # ШАГ 5: Финальная статистика
+        # ШАГ 4: Финальная статистика (только по факту)
         # ==============================================
         final_count = len(final_ap)
         plan_completion = (final_count / target_ap * 100) if target_ap > 0 else 0
         
+        # Утилизация считается ТОЛЬКО по факту попадания в final_ap
+        # Считаем, сколько точек из каждого источника реально попало в final_ap
+        constant_fact = len(final_ap[final_ap['Источник'] == 'Константа'])
+        variable_fact = len(final_ap[final_ap['Источник'] == 'Переменная'])
+        retro_fact = len(final_ap[final_ap['Источник'] == 'Ретро'])
+        
+        constant_utilization = (constant_fact / constant_total * 100) if constant_total > 0 else 0
+        variable_utilization = (variable_fact / variable_total * 100) if variable_total > 0 else 0
+        retro_utilization = (retro_fact / retro_total * 100) if retro_total > 0 else 0
+        
         # ==============================================
-        # ШАГ 6: Проверка пропорций по типам (мягкая)
+        # ШАГ 5: Проверка пропорций по типам (мягкая)
         # ==============================================
         type_warnings = []
         if len(final_ap) > 0:
@@ -328,48 +342,44 @@ class PlanningEngine:
                     )
         
         # ==============================================
-        # ШАГ 7: Формируем предупреждения (мягкие проверки)
+        # ШАГ 6: Мягкие проверки (предупреждения)
         # ==============================================
         warnings = []
         
-        # Проверка утилизации Константы
         if constant_utilization < constant_threshold:
             warnings.append(f'⚠️ Константа: {constant_utilization:.1f}% (< {constant_threshold}%)')
         
-        # Проверка утилизации Переменной
         if variable_utilization < variable_threshold:
             warnings.append(f'⚠️ Переменная: {variable_utilization:.1f}% (< {variable_threshold}%)')
         
-        # Проверка выполнения плана (если не удалось собрать 100%)
         if plan_completion < 95:
             warnings.append(f'⚠️ План выполнен только на {plan_completion:.1f}% (цель {target_ap})')
         
-        # Добавляем предупреждения по типам
         warnings.extend(type_warnings)
         
         # ==============================================
-        # ШАГ 8: Утилизация
+        # ШАГ 7: Утилизация (для отчёта)
         # ==============================================
         utilization = {
             'constant': {
                 'total': constant_total,
-                'selected': len(constant_selected_df),
+                'selected': constant_fact,
                 'utilization': constant_utilization
             },
             'variable': {
                 'total': variable_total,
-                'selected': len(variable_selected_df),
+                'selected': variable_fact,
                 'utilization': variable_utilization
             },
             'retro': {
                 'total': retro_total,
-                'selected': len(retro_all_selected_df),
+                'selected': retro_fact,
                 'utilization': retro_utilization
             }
         }
         
         # ==============================================
-        # ШАГ 9: Формируем результат
+        # ШАГ 8: Результат
         # ==============================================
         status = 'success' if not warnings else 'warning'
         message = f'✅ План сформирован: {final_count} из {target_ap} ({plan_completion:.1f}%)'
@@ -382,20 +392,20 @@ class PlanningEngine:
             'warnings': warnings,
             'final_ap': final_ap,
             'constant_selected': constant_selected_df,
-            'variable_selected': variable_selected_df,
-            'retro_selected': retro_all_selected_df,
+            'variable_selected': variable_all_df if 'variable_all_df' in locals() else pd.DataFrame(),
+            'retro_selected': retro_all_df if 'retro_all_df' in locals() else pd.DataFrame(),
             'statistics': {
                 'target_ap': target_ap,
                 'final_count': final_count,
                 'plan_completion': plan_completion,
                 'constant_total': constant_total,
-                'constant_selected': len(constant_selected_df),
+                'constant_selected': constant_fact,
                 'constant_utilization': constant_utilization,
                 'variable_total': variable_total,
-                'variable_selected': len(variable_selected_df),
+                'variable_selected': variable_fact,
                 'variable_utilization': variable_utilization,
                 'retro_total': retro_total,
-                'retro_selected': len(retro_all_selected_df),
+                'retro_selected': retro_fact,
                 'retro_utilization': retro_utilization
             },
             'utilization': utilization
