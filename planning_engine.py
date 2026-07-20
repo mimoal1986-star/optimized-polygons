@@ -298,7 +298,8 @@ class PlanningEngine:
             # Отбираем все точки Ретро, попавшие в полигоны
             retro_all = []
             for _, row in self.retro_df.iterrows():
-                if self.check_point_in_polygons(row['долгота'], row['широта'], retro_polygons):
+                # Используем унифицированные названия колонок
+                if self.check_point_in_polygons(row['Longitude'], row['Latitude'], retro_polygons):
                     retro_all.append(row)
             
             retro_all_df = pd.DataFrame(retro_all)
@@ -308,7 +309,7 @@ class PlanningEngine:
                 existing_coords = set(zip(final_ap['Longitude'], final_ap['Latitude']))
                 retro_all_df = retro_all_df[
                     ~retro_all_df.apply(
-                        lambda row: (row['долгота'], row['широта']) in existing_coords,
+                        lambda row: (row['Longitude'], row['Latitude']) in existing_coords,
                         axis=1
                     )
                 ]
