@@ -234,13 +234,29 @@ class PlanningEngine:
             return {'status': 'error', 'message': 'Сначала создайте ретро-полигоны!'}
         
         # ==============================================
+        # ПРЕОБРАЗУЕМ retro_polygons В SHAPELY-ПОЛИГОНЫ
+        # ==============================================
+        from shapely.geometry import Polygon
+        
+        polygon_geoms = []
+        for poly_data in retro_polygons:
+            coords = poly_data['coordinates']
+            if coords and len(coords) >= 3:
+                if coords[0] != coords[-1]:
+                    coords = coords + [coords[0]]
+                polygon_geoms.append(Polygon(coords))
+        
+        if not polygon_geoms:
+            return {'status': 'error', 'message': 'Нет валидных полигонов!'}
+        
+        # ==============================================
         # ШАГ 1: Отбор Константы → формируем основу АП
         # ==============================================
         constant_selected = []
         constant_total = len(self.constant_df)
         
         for _, row in self.constant_df.iterrows():
-            if self.check_point_in_polygons(row['Longitude'], row['Latitude'], retro_polygons):
+            if self.check_point_in_polygons(row['Longitude'], row['Latitude'], polygon_geoms):
                 constant_selected.append(row)
         
         constant_selected_df = pd.DataFrame(constant_selected)
