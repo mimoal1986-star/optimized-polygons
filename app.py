@@ -734,10 +734,10 @@ with tab4:
                             st.success(result['message'])
                         elif result['status'] == 'warning':
                             st.warning(result['message'])
-                            if 'type_errors' in result:
-                                with st.expander("⚠️ Детали по типам магазинов"):
-                                    for error in result['type_errors']:
-                                        st.write(f"- {error}")
+                            if 'warnings' in result and result['warnings']:
+                                with st.expander("⚠️ Детали предупреждений"):
+                                    for warning in result['warnings']:
+                                        st.write(f"- {warning}")
                         else:
                             st.error(result['message'])
                             st.stop()
