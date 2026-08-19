@@ -829,7 +829,7 @@ with tab4:
                                 export_df['Источник'] = export_df.index.map(get_source)
                             
                             # Выбираем нужные колонки
-                            columns_order = ['Аудитор', 'Customer Name', 'RED PoS Group', 'Город', 'Street Name', 'Longitude', 'Latitude', 'Источник']
+                            columns_order = ['Аудитор', 'Сеть', 'Customer Name', 'RED PoS Group', 'Город', 'Street Name', 'Longitude', 'Latitude', 'Источник']
                             available_cols = [col for col in columns_order if col in export_df.columns]
                             export_df = export_df[available_cols]
                             
