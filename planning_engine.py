@@ -152,7 +152,7 @@ class PlanningEngine:
         if total_rows == 0:
             return {}
         
-        client_counts = self.constant_df['Customer Name'].value_counts()
+        client_counts = self.constant_df['Сеть'].value_counts()
         
         self.client_ratios = {}
         for client, count in client_counts.items():
@@ -182,7 +182,7 @@ class PlanningEngine:
         
         if self.constant_df is not None:
             stats['constant_count'] = len(self.constant_df)
-            stats['constant_clients'] = self.constant_df['Customer Name'].nunique()
+            stats['constant_clients'] = self.constant_df['Сеть'].nunique()
             stats['constant_cities'] = self.constant_df['Город'].nunique()
         
         if self.variable_df is not None:
