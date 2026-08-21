@@ -41,30 +41,31 @@ class PlanningEngine:
             if 'Longitude' in self.variable_df.columns:
                 self.variable_df['Longitude'] = self.variable_df['Longitude'].astype(str).str.replace(',', '.').astype(float)
         
-        # Ретро (здесь колонки могут называться по-другому)
+        # Ретро
         if retro_file is not None:
             self.retro_df = pd.read_excel(retro_file)
             
-            # Ищем колонки с координатами
-            lat_col = None
-            lon_col = None
-            login_col = None
+            # Словарь для переименования ВСЕХ колонок Ретро
+            retro_mapping = {}
             
             for col in self.retro_df.columns:
                 col_lower = col.lower().strip()
                 if col_lower in ['широта', 'latitude', 'lat', 'гео/ш']:
-                    lat_col = col
+                    retro_mapping[col] = 'Latitude'
                 elif col_lower in ['долгота', 'longitude', 'lon', 'гео/д']:
-                    lon_col = col
+                    retro_mapping[col] = 'Longitude'
                 elif col_lower in ['логин', 'login', 'auditor', 'id сотрудника', 'тп']:
-                    login_col = col
+                    retro_mapping[col] = 'логин'
+                elif col_lower in ['тип', 'type', 'red pos group']:
+                    retro_mapping[col] = 'RED PoS Group'
+                elif col_lower in ['адрес', 'address', 'street name']:
+                    retro_mapping[col] = 'Street Name'
+                elif col_lower in ['город', 'city']:
+                    retro_mapping[col] = 'Город'
+                elif col_lower in ['сеть', 'network', 'chain']:
+                    retro_mapping[col] = 'Сеть'
             
-            if lat_col:
-                self.retro_df = self.retro_df.rename(columns={lat_col: 'Latitude'})
-            if lon_col:
-                self.retro_df = self.retro_df.rename(columns={lon_col: 'Longitude'})
-            if login_col:
-                self.retro_df = self.retro_df.rename(columns={login_col: 'логин'})
+            self.retro_df = self.retro_df.rename(columns=retro_mapping)
             
             if 'Latitude' in self.retro_df.columns:
                 self.retro_df['Latitude'] = self.retro_df['Latitude'].astype(str).str.replace(',', '.').astype(float)
