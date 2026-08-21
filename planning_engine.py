@@ -199,19 +199,19 @@ class PlanningEngine:
         top_count = max(1, int(len(scored) * top_percent / 100))
         return [point for _, point in scored[:top_count]]
         
-        def get_statistics(self):
-            stats = {}
-            if self.constant_df is not None:
-                stats['constant_count'] = len(self.constant_df)
-                stats['constant_clients'] = self.constant_df['Сеть'].nunique()
-                stats['constant_cities'] = self.constant_df['Город'].nunique()
-            if self.variable_df is not None:
-                stats['variable_count'] = len(self.variable_df)
-                stats['variable_cities'] = self.variable_df['Город'].nunique()
-            if self.retro_df is not None:
-                stats['retro_count'] = len(self.retro_df)
-                stats['retro_auditors'] = self.retro_df['логин'].nunique()
-            return stats
+    def get_statistics(self):
+        stats = {}
+        if self.constant_df is not None:
+            stats['constant_count'] = len(self.constant_df)
+            stats['constant_clients'] = self.constant_df['Сеть'].nunique()
+            stats['constant_cities'] = self.constant_df['Город'].nunique()
+        if self.variable_df is not None:
+            stats['variable_count'] = len(self.variable_df)
+            stats['variable_cities'] = self.variable_df['Город'].nunique()
+        if self.retro_df is not None:
+            stats['retro_count'] = len(self.retro_df)
+            stats['retro_auditors'] = self.retro_df['логин'].nunique()
+        return stats
     
     def check_point_in_polygons(self, lon, lat, polygons):
         if not polygons: return False
