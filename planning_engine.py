@@ -109,22 +109,22 @@ class PlanningEngine:
         return city_ratios
 
     def calculate_type_ratios(self):
-    """Вычисляет пропорции по типам магазинов из Константы"""
-    if self.constant_df is None:
-        return {}
-    
-    total_rows = len(self.constant_df)
-    if total_rows == 0:
-        return {}
-    
-    type_counts = self.constant_df['RED PoS Group'].value_counts()
-    
-    type_ratios = {}
-    for type_name, count in type_counts.items():
-        if type_name and type_name != 'nan':
-            type_ratios[type_name] = (count / total_rows) * 100
-    
-    return type_ratios
+        """Вычисляет пропорции по типам магазинов из Константы"""
+        if self.constant_df is None:
+            return {}
+        
+        total_rows = len(self.constant_df)
+        if total_rows == 0:
+            return {}
+        
+        type_counts = self.constant_df['RED PoS Group'].value_counts()
+        
+        type_ratios = {}
+        for type_name, count in type_counts.items():
+            if type_name and type_name != 'nan':
+                type_ratios[type_name] = (count / total_rows) * 100
+        
+        return type_ratios
     
     def get_statistics(self):
         stats = {}
