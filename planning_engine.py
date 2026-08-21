@@ -21,66 +21,55 @@ class PlanningEngine:
         self.retro_df = None
         
     def load_files(self, constant_file, variable_file, retro_file):
-        """Загружает три файла и нормализует названия колонок"""
-        def normalize_columns(df):
-            mapping = {
-                'latitude': 'Latitude', 'lat': 'Latitude',
-                'широта': 'Latitude', 'гео/ш': 'Latitude',
-                'longitude': 'Longitude', 'lon': 'Longitude',
-                'долгота': 'Longitude', 'гео/д': 'Longitude',
-                'город': 'Город', 'city': 'Город',
-                'customer name': 'Customer Name', 'клиент': 'Customer Name',
-                'red pos group': 'RED PoS Group', 'тип': 'RED PoS Group',
-                'type': 'RED PoS Group', 'сеть': 'Сеть',
-                'логин': 'логин', 'login': 'логин',
-                'auditor': 'логин', 'id сотрудника': 'логин',
-            }
-            new_columns = {}
-            for col in df.columns:
-                col_clean = col.strip().lower()
-                if col_clean in mapping:
-                    new_columns[col] = mapping[col_clean]
-                else:
-                    new_columns[col] = col.strip().title()
-            return df.rename(columns=new_columns)
+        """Загружает три файла (без переименования колонок)"""
         
+        # Константа
         if constant_file is not None:
             self.constant_df = pd.read_excel(constant_file)
-            self.constant_df = normalize_columns(self.constant_df)
+            
+            # Преобразуем координаты (запятая → точка)
             if 'Latitude' in self.constant_df.columns:
                 self.constant_df['Latitude'] = self.constant_df['Latitude'].astype(str).str.replace(',', '.').astype(float)
             if 'Longitude' in self.constant_df.columns:
                 self.constant_df['Longitude'] = self.constant_df['Longitude'].astype(str).str.replace(',', '.').astype(float)
         
+        # Переменная
         if variable_file is not None:
             self.variable_df = pd.read_excel(variable_file)
-            self.variable_df = normalize_columns(self.variable_df)
             if 'Latitude' in self.variable_df.columns:
                 self.variable_df['Latitude'] = self.variable_df['Latitude'].astype(str).str.replace(',', '.').astype(float)
             if 'Longitude' in self.variable_df.columns:
                 self.variable_df['Longitude'] = self.variable_df['Longitude'].astype(str).str.replace(',', '.').astype(float)
         
+        # Ретро (здесь колонки могут называться по-другому)
         if retro_file is not None:
             self.retro_df = pd.read_excel(retro_file)
-            lat_col = lon_col = login_col = type_col = address_col = city_col = None
+            
+            # Ищем колонки с координатами
+            lat_col = None
+            lon_col = None
+            login_col = None
+            
             for col in self.retro_df.columns:
                 col_lower = col.lower().strip()
-                if col_lower in ['широта', 'latitude', 'lat', 'гео/ш']: lat_col = col
-                elif col_lower in ['долгота', 'longitude', 'lon', 'гео/д']: lon_col = col
-                elif col_lower in ['логин', 'login', 'auditor', 'id сотрудника', 'тп']: login_col = col
-                elif col_lower in ['тип', 'type', 'red pos group']: type_col = col
-                elif col_lower in ['адрес', 'address', 'street name']: address_col = col
-                elif col_lower in ['город', 'city']: city_col = col
+                if col_lower in ['широта', 'latitude', 'lat', 'гео/ш']:
+                    lat_col = col
+                elif col_lower in ['долгота', 'longitude', 'lon', 'гео/д']:
+                    lon_col = col
+                elif col_lower in ['логин', 'login', 'auditor', 'id сотрудника', 'тп']:
+                    login_col = col
             
-            if lat_col: self.retro_df = self.retro_df.rename(columns={lat_col: 'Latitude'})
-            if lon_col: self.retro_df = self.retro_df.rename(columns={lon_col: 'Longitude'})
-            if login_col: self.retro_df = self.retro_df.rename(columns={login_col: 'логин'})
-            if type_col: self.retro_df = self.retro_df.rename(columns={type_col: 'RED PoS Group'})
-            if address_col: self.retro_df = self.retro_df.rename(columns={address_col: 'Street Name'})
-            if city_col: self.retro_df = self.retro_df.rename(columns={city_col: 'Город'})
+            if lat_col:
+                self.retro_df = self.retro_df.rename(columns={lat_col: 'Latitude'})
+            if lon_col:
+                self.retro_df = self.retro_df.rename(columns={lon_col: 'Longitude'})
+            if login_col:
+                self.retro_df = self.retro_df.rename(columns={login_col: 'логин'})
             
-            self.retro_df['Latitude'] = self.retro_df['Latitude'].astype(str).str_replace(',', '.').astype(float)
-            self.retro_df['Longitude'] = self.retro_df['Longitude'].astype(str).str_replace(',', '.').astype(float)
+            if 'Latitude' in self.retro_df.columns:
+                self.retro_df['Latitude'] = self.retro_df['Latitude'].astype(str).str.replace(',', '.').astype(float)
+            if 'Longitude' in self.retro_df.columns:
+                self.retro_df['Longitude'] = self.retro_df['Longitude'].astype(str).str.replace(',', '.').astype(float)
         
         return self.constant_df is not None
     
