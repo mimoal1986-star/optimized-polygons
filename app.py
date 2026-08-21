@@ -513,6 +513,7 @@ with tab4:
                 st.session_state['client_ratios'] = client_ratios
                 city_ratios = planning_engine.calculate_city_ratios()
                 st.session_state['city_ratios'] = city_ratios
+                st.session_state['type_ratios'] = planning_engine.type_ratios
             stats = planning_engine.get_statistics()
             st.success("✅ Данные загружены")
             
@@ -537,6 +538,12 @@ with tab4:
                         st.write(f"{i}. **{client}** — {ratio:.1f}%")
                     if len(sorted_clients) > 10:
                         st.caption(f"... и еще {len(sorted_clients) - 10} клиентов")
+
+            if 'type_ratios' in st.session_state and st.session_state['type_ratios']:
+                with st.expander("📊 Пропорции по типам магазинов (из Константы)"):
+                    sorted_types = sorted(st.session_state['type_ratios'].items(), key=lambda x: x[1], reverse=True)
+                    for type_name, ratio in sorted_types:
+                        st.write(f"• **{type_name}**: {ratio:.1f}%")
             
             if 'city_ratios' in st.session_state and st.session_state['city_ratios']:
                 with st.expander("📊 Пропорции по городам (из Константы)"):
