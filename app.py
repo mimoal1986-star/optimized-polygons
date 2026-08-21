@@ -582,9 +582,6 @@ with tab2:
 
 with tab3:
     st.header("📤 Экспорт данных")
-
-with tab3:
-    st.header("📤 Экспорт данных")
     
     if 'polygons' in st.session_state and st.session_state['polygons']:
         polygons = st.session_state['polygons']
@@ -831,8 +828,8 @@ with tab4:
             st.error("❌ Загрузите файл Константы!")
         else:
             # Проверяем наличие ретро-полигонов
-            if 'polygons' not in st.session_state or not st.session_state['polygons']:
-                st.error("❌ Сначала создайте ретро-полигоны в разделе '📐 Полигоны'!")
+            if 'fact_polygons' not in st.session_state or not st.session_state['fact_polygons']:
+                st.error("❌ Сначала загрузите факт-полигоны в разделе '📐 Полигоны'!")
             else:
                 with st.spinner("🔄 Формирование плана визитов..."):
                     retro_polygons = st.session_state['polygons']
@@ -852,8 +849,8 @@ with tab4:
                         st.error("❌ Нет валидных полигонов для проверки!")
                     else:
                         # Запускаем формирование плана
-                        result = planning_engine.build_plan(
-                            retro_polygons=retro_polygons,
+                        result = planning_engine.build_plan_with_fact_polygons(
+                            fact_polygons=st.session_state.get('fact_polygons', {}),
                             target_ap=target_ap,
                             constant_threshold=constant_threshold,
                             variable_threshold=variable_threshold,
