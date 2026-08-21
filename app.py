@@ -136,7 +136,86 @@ def generate_csv_for_google(polygons):
     
     df = pd.DataFrame(rows)
     return df.to_csv(index=False, encoding='utf-8-sig')
+
+# ==============================================
+# ПАРСИНГ ФАКТ-ПОЛИГОНОВ ИЗ CSV
+# ==============================================
+
+def parse_fact_polygons_csv(file):
+    """
+    Парсит CSV с факт-полигонами.
+    Формат: WKT, название, описание
+    Пример: POLYGON ((44.63 48.88, 44.31 48.83, ...)),SOVIAUD4,
     
+    Returns:
+        dict: {id: polygon_data}
+    """
+    import re
+    
+    polygons = {}
+    
+    content = file.getvalue().decode('utf-8')
+    lines = content.split('\n')
+    
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        
+        if not line.upper().startswith('POLYGON'):
+            continue
+        
+        parts = line.split(',', 2)
+        
+        if len(parts) < 2:
+            continue
+        
+        wkt_part = parts[0].strip()
+        name_part = parts[1].strip() if len(parts) > 1 else ''
+        
+        coords_match = re.search(r'\(\(([^)]+)\)\)', wkt_part)
+        if not coords_match:
+            continue
+        
+        coords_str = coords_match.group(1)
+        coord_pairs = coords_str.split(',')
+        
+        coordinates = []
+        for pair in coord_pairs:
+            pair = pair.strip()
+            if not pair:
+                continue
+            parts_coord = pair.split()
+            if len(parts_coord) >= 2:
+                try:
+                    lon = float(parts_coord[0])
+                    lat = float(parts_coord[1])
+                    coordinates.append((lon, lat))
+                except ValueError:
+                    continue
+        
+        if len(coordinates) < 3:
+            continue
+        
+        auditor_id = name_part.strip()
+        if not auditor_id:
+            auditor_id = f"Полигон_{len(polygons) + 1}"
+        
+        auditor_id = auditor_id.replace('словид', 'SOVIAUD')
+        auditor_id = auditor_id.replace('Словид', 'SOVIAUD')
+        auditor_id = auditor_id.strip()
+        
+        poly_id = f"{auditor_id}_{len(polygons) + 1}"
+        
+        polygons[poly_id] = {
+            'id': poly_id,
+            'auditor_id': auditor_id,
+            'coordinates': coordinates,
+            'city': 'Неизвестно',
+        }
+    
+    return polygons
+
 # Настройка страницы
 st.set_page_config(
     page_title="Сервис полигонов аудиторов",
@@ -480,8 +559,26 @@ with tab2:
     
     if fact_polygons_file is not None:
         with st.spinner("Загрузка и парсинг полигонов..."):
-            st.info("🔧 Парсинг полигонов — в разработке")
-            # Здесь будет парсинг WKT (добавим позже)
+            try:
+                polygons_dict = parse_fact_polygons_csv(fact_polygons_file)
+                
+                if not polygons_dict:
+                    st.error("❌ Не удалось распарсить полигоны. Проверьте формат файла.")
+                else:
+                    success, message = data_processor.save_fact_polygons(polygons_dict)
+                    
+                    if success:
+                        st.session_state['fact_polygons'] = polygons_dict
+                        st.success(f"✅ Загружено {len(polygons_dict)} полигонов")
+                        
+                        with st.expander("📋 Список загруженных полигонов"):
+                            for poly_id, poly_data in polygons_dict.items():
+                                st.write(f"• **{poly_id}**: {poly_data['auditor_id']} — {len(poly_data['coordinates'])} точек")
+                    else:
+                        st.error(message)
+                        
+            except Exception as e:
+                st.error(f"❌ Ошибка при загрузке: {str(e)}")
 
 with tab3:
     st.header("📤 Экспорт данных")
