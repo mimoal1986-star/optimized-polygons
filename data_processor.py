@@ -366,3 +366,125 @@ class DataProcessor:
                 continue
         
         return cities
+
+    # ==============================================
+    # РАБОТА С ФАКТ-ПОЛИГОНАМИ (JSON на GitHub)
+    # ==============================================
+
+    def load_fact_polygons(self):
+        """Загрузка факт-полигонов из GitHub"""
+        if not self.available:
+            return {}
+        
+        try:
+            url = f"https://api.github.com/repos/{self.repo}/contents/fact_polygons.json"
+            response = requests.get(
+                url,
+                headers=self.headers,
+                params={"ref": self.branch}
+            )
+            
+            if response.status_code == 200:
+                content = response.json()
+                file_content = base64.b64decode(content["content"]).decode("utf-8")
+                
+                if not file_content or file_content.strip() == '':
+                    print("⚠️ Файл fact_polygons.json пустой")
+                    return {}
+                
+                try:
+                    return json.loads(file_content)
+                except json.JSONDecodeError as e:
+                    print(f"❌ Ошибка парсинга fact_polygons.json: {e}")
+                    return {}
+            return {}
+                
+        except Exception as e:
+            st.warning(f"Не удалось загрузить факт-полигоны: {e}")
+            return {}
+
+    def save_fact_polygons(self, polygons_dict):
+        """Сохранение факт-полигонов в GitHub"""
+        if not self.available:
+            return False, "❌ GitHub не доступен"
+        
+        try:
+            content = json.dumps(polygons_dict, indent=2, ensure_ascii=False)
+            content_base64 = base64.b64encode(content.encode("utf-8")).decode("utf-8")
+            
+            url = f"https://api.github.com/repos/{self.repo}/contents/fact_polygons.json"
+            sha = None
+            try:
+                response = requests.get(
+                    url,
+                    headers=self.headers,
+                    params={"ref": self.branch}
+                )
+                if response.status_code == 200:
+                    sha = response.json()["sha"]
+            except:
+                pass
+            
+            payload = {
+                "message": f"Обновление факт-полигонов от {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+                "content": content_base64,
+                "branch": self.branch
+            }
+            if sha:
+                payload["sha"] = sha
+            
+            response = requests.put(
+                url,
+                headers=self.headers,
+                json=payload
+            )
+            
+            if response.status_code in [200, 201]:
+                return True, f"✅ Полигоны сохранены в GitHub ({len(polygons_dict)} шт)"
+            else:
+                return False, f"❌ Ошибка сохранения: {response.status_code}"
+                
+        except Exception as e:
+            return False, f"❌ Ошибка: {str(e)}"
+
+    def clear_fact_polygons(self):
+        """Очищает факт-полигоны (удаляет файл из GitHub)"""
+        if not self.available:
+            return False, "❌ GitHub не доступен"
+        
+        try:
+            url = f"https://api.github.com/repos/{self.repo}/contents/fact_polygons.json"
+            
+            sha = None
+            try:
+                response = requests.get(
+                    url,
+                    headers=self.headers,
+                    params={"ref": self.branch}
+                )
+                if response.status_code == 200:
+                    sha = response.json()["sha"]
+            except:
+                pass
+            
+            if sha:
+                payload = {
+                    "message": f"Удаление факт-полигонов от {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+                    "sha": sha,
+                    "branch": self.branch
+                }
+                response = requests.delete(
+                    url,
+                    headers=self.headers,
+                    json=payload
+                )
+                
+                if response.status_code in [200, 204]:
+                    return True, "✅ Полигоны удалены"
+                else:
+                    return False, f"❌ Ошибка удаления: {response.status_code}"
+            else:
+                return True, "✅ Полигонов нет (файл отсутствует)"
+                
+        except Exception as e:
+            return False, f"❌ Ошибка: {str(e)}"
