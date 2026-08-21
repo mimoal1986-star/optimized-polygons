@@ -501,6 +501,27 @@ class PlanningEngine:
     def build_plan_with_fact_polygons(self, fact_polygons, target_ap, constant_threshold=95, variable_threshold=95, type_tolerance=0):
         """
         Формирует план визитов (АП) на основе ФАКТ-ПОЛИГОНОВ.
+        
+        Логика:
+        1. Константа → проверяем попадание в факт-полигоны
+        2. Переменная → добираем до 100% (без дубликатов)
+        3. Ретро → добираем до 100% (без дубликатов)
+        
+        Args:
+            fact_polygons: dict из st.session_state['fact_polygons']
+            target_ap: целевой объем АП
+            constant_threshold: порог константы (%)
+            variable_threshold: порог переменной (%)
+            type_tolerance: допуск по типам магазинов (%)
+        
+        Returns:
+            dict: {
+                'status': 'success' | 'warning' | 'error',
+                'message': str,
+                'final_ap': DataFrame,
+                'statistics': dict,
+                'utilization': dict
+            }
         """
         if self.constant_df is None:
             return {'status': 'error', 'message': 'Загрузите файл Константы!'}
@@ -508,6 +529,9 @@ class PlanningEngine:
         if not fact_polygons:
             return {'status': 'error', 'message': 'Сначала загрузите факт-полигоны!'}
         
+        # ==============================================
+        # ПРЕОБРАЗУЕМ факт-полигоны в SHAPELY-ПОЛИГОНЫ
+        # ==============================================
         polygon_geoms = []
         polygon_auditors = []
         for poly_id, poly_data in fact_polygons.items():
@@ -522,7 +546,7 @@ class PlanningEngine:
             return {'status': 'error', 'message': 'Нет валидных полигонов!'}
         
         # ==============================================
-        # ШАГ 1: Отбор Константы
+        # ШАГ 1: Отбор Константы → формируем основу АП
         # ==============================================
         constant_selected = []
         constant_total = len(self.constant_df)
@@ -537,22 +561,27 @@ class PlanningEngine:
                     break
             
             if assigned_auditor:
-                row['Аудитор'] = assigned_auditor
-                constant_selected.append(row.copy())
+                row_dict = row.to_dict()
+                row_dict['Аудитор'] = assigned_auditor
+                constant_selected.append(row_dict)
         
         constant_selected_df = pd.DataFrame(constant_selected)
+        
+        # Формируем финальную АП из Константы
         final_ap = constant_selected_df.copy()
         final_ap['Источник'] = 'Константа'
         
+        # Проверяем, достигнут ли target_ap
         if len(final_ap) >= target_ap:
-            pass
+            pass  # переходим к статистике
         
         # ==============================================
-        # ШАГ 2: Отбор Переменной
+        # ШАГ 2: Отбор Переменной → добираем до target_ap
         # ==============================================
         variable_total = len(self.variable_df) if self.variable_df is not None else 0
         
         if self.variable_df is not None and variable_total > 0:
+            # Отбираем все точки Переменной, попавшие в полигоны
             variable_all = []
             for _, row in self.variable_df.iterrows():
                 point = Point(row['Longitude'], row['Latitude'])
@@ -564,11 +593,13 @@ class PlanningEngine:
                         break
                 
                 if assigned_auditor:
-                    row['Аудитор'] = assigned_auditor
-                    variable_all.append(row.copy())
+                    row_dict = row.to_dict()
+                    row_dict['Аудитор'] = assigned_auditor
+                    variable_all.append(row_dict)
             
             variable_all_df = pd.DataFrame(variable_all)
             
+            # Удаляем дубликаты с текущей final_ap
             if not variable_all_df.empty and not final_ap.empty:
                 existing_coords = set(zip(final_ap['Longitude'], final_ap['Latitude']))
                 variable_all_df = variable_all_df[
@@ -578,6 +609,7 @@ class PlanningEngine:
                     )
                 ]
             
+            # Берём только сколько не хватает до target_ap
             current_count = len(final_ap)
             needed = max(0, target_ap - current_count)
             
@@ -587,11 +619,12 @@ class PlanningEngine:
                 final_ap = pd.concat([final_ap, variable_to_add], ignore_index=True)
         
         # ==============================================
-        # ШАГ 3: Отбор Ретро
+        # ШАГ 3: Отбор Ретро → добираем до target_ap
         # ==============================================
         retro_total = len(self.retro_df) if self.retro_df is not None else 0
         
         if self.retro_df is not None and retro_total > 0:
+            # Отбираем все точки Ретро, попавшие в полигоны
             retro_all = []
             for _, row in self.retro_df.iterrows():
                 point = Point(row['Longitude'], row['Latitude'])
@@ -603,11 +636,13 @@ class PlanningEngine:
                         break
                 
                 if assigned_auditor:
-                    row['Аудитор'] = assigned_auditor
-                    retro_all.append(row.copy())
+                    row_dict = row.to_dict()
+                    row_dict['Аудитор'] = assigned_auditor
+                    retro_all.append(row_dict)
             
             retro_all_df = pd.DataFrame(retro_all)
             
+            # Удаляем дубликаты с текущей final_ap
             if not retro_all_df.empty and not final_ap.empty:
                 existing_coords = set(zip(final_ap['Longitude'], final_ap['Latitude']))
                 retro_all_df = retro_all_df[
@@ -617,6 +652,7 @@ class PlanningEngine:
                     )
                 ]
             
+            # Берём только сколько не хватает до target_ap
             current_count = len(final_ap)
             needed = max(0, target_ap - current_count)
             
@@ -626,11 +662,13 @@ class PlanningEngine:
                 final_ap = pd.concat([final_ap, retro_to_add], ignore_index=True)
         
         # ==============================================
-        # ШАГ 4: Статистика
+        # ШАГ 4: Финальная статистика (только по факту)
         # ==============================================
         final_count = len(final_ap)
         plan_completion = (final_count / target_ap * 100) if target_ap > 0 else 0
         
+        # Утилизация считается ТОЛЬКО по факту попадания в final_ap
+        # Считаем, сколько точек из каждого источника реально попало в final_ap
         constant_fact = len(final_ap[final_ap['Источник'] == 'Константа'])
         variable_fact = len(final_ap[final_ap['Источник'] == 'Переменная'])
         retro_fact = len(final_ap[final_ap['Источник'] == 'Ретро'])
@@ -640,7 +678,7 @@ class PlanningEngine:
         retro_utilization = (retro_fact / retro_total * 100) if retro_total > 0 else 0
         
         # ==============================================
-        # ШАГ 5: Проверка пропорций по типам
+        # ШАГ 5: Проверка пропорций по типам (мягкая)
         # ==============================================
         type_warnings = []
         if len(final_ap) > 0:
@@ -659,7 +697,7 @@ class PlanningEngine:
                     )
         
         # ==============================================
-        # ШАГ 6: Мягкие проверки
+        # ШАГ 6: Мягкие проверки (предупреждения)
         # ==============================================
         warnings = []
         
@@ -675,7 +713,7 @@ class PlanningEngine:
         warnings.extend(type_warnings)
         
         # ==============================================
-        # ШАГ 7: Утилизация
+        # ШАГ 7: Утилизация (для отчёта)
         # ==============================================
         utilization = {
             'constant': {
