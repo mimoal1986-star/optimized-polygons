@@ -155,6 +155,8 @@ try:
     cluster_engine = ClusterEngine()
     polygon_builder = PolygonBuilder(data_processor)
     planning_engine = PlanningEngine()
+    if 'fact_polygons' not in st.session_state:
+        st.session_state['fact_polygons'] = data_processor.load_fact_polygons()
 except Exception as e:
     st.error(f"Ошибка инициализации: {str(e)}")
     st.stop()
@@ -267,6 +269,22 @@ with st.sidebar:
             if 'polygons' in st.session_state:
                 del st.session_state.polygons
             st.success("✅ Данные очищены")
+            
+    st.markdown("---")
+    
+    st.subheader("🗺️ Факт-полигоны")
+    
+    fact_count = len(st.session_state.get('fact_polygons', {}))
+    st.metric("Загружено полигонов", fact_count)
+    
+    if st.button("🗑️ Очистить полигоны", type="secondary"):
+        success, message = data_processor.clear_fact_polygons()
+        if success:
+            st.session_state['fact_polygons'] = {}
+            st.success(message)
+            st.rerun()
+        else:
+            st.error(message)
     
     # Параметры генерации
     st.markdown("---")
@@ -451,6 +469,22 @@ with tab2:
                         with st.expander("⚠️ Ошибки при создании полигонов"):
                             for error in errors:
                                 st.code(error)
+    st.markdown("---")
+    st.subheader("📥 Загрузка факт-полигонов")
+    
+    fact_polygons_file = st.file_uploader(
+        "Загрузите CSV с факт-полигонами",
+        type=['csv'],
+        help="Файл должен содержать колонки: WKT, название, описание"
+    )
+    
+    if fact_polygons_file is not None:
+        with st.spinner("Загрузка и парсинг полигонов..."):
+            st.info("🔧 Парсинг полигонов — в разработке")
+            # Здесь будет парсинг WKT (добавим позже)
+
+with tab3:
+    st.header("📤 Экспорт данных")
 
 with tab3:
     st.header("📤 Экспорт данных")
