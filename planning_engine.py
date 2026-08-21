@@ -11,11 +11,7 @@ class PlanningEngine:
     
     def __init__(self):
         self.client_ratios = {}
-        self.type_ratios = {
-            'HYPERMARKET': 2.18,
-            'SUPERMARKET': 6.60,
-            'CONVENIENCE': 91.21
-        }
+        self.type_ratios = {}
         self.constant_df = None
         self.variable_df = None
         self.retro_df = None
@@ -38,9 +34,12 @@ class PlanningEngine:
             if 'Longitude' in self.constant_df.columns:
                 self.constant_df['Longitude'] = self.constant_df['Longitude'].astype(str).str.replace(',', '.').astype(float)
             
-            # 🔥 НОРМАЛИЗУЕМ ГОРОДА
+            # Нормализуем города
             if 'Город' in self.constant_df.columns:
                 self.constant_df['Город'] = self.constant_df['Город'].apply(normalize_city_name)
+            
+            # 🔥 РАССЧИТЫВАЕМ ПРОПОРЦИИ ПО ТИПАМ ИЗ КОНСТАНТЫ
+            self.type_ratios = self.calculate_type_ratios()
         
         # Переменная
         if variable_file is not None:
@@ -108,6 +107,24 @@ class PlanningEngine:
         for city, count in city_counts.items():
             city_ratios[city] = (count / total_rows) * 100
         return city_ratios
+
+    def calculate_type_ratios(self):
+    """Вычисляет пропорции по типам магазинов из Константы"""
+    if self.constant_df is None:
+        return {}
+    
+    total_rows = len(self.constant_df)
+    if total_rows == 0:
+        return {}
+    
+    type_counts = self.constant_df['RED PoS Group'].value_counts()
+    
+    type_ratios = {}
+    for type_name, count in type_counts.items():
+        if type_name and type_name != 'nan':
+            type_ratios[type_name] = (count / total_rows) * 100
+    
+    return type_ratios
     
     def get_statistics(self):
         stats = {}
