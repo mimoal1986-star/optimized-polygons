@@ -23,15 +23,24 @@ class PlanningEngine:
     def load_files(self, constant_file, variable_file, retro_file):
         """Загружает три файла (без переименования колонок)"""
         
+        def normalize_city_name(city):
+            if pd.isna(city) or city == '':
+                return ''
+            city = str(city).strip()
+            return city.lower().title()
+        
         # Константа
         if constant_file is not None:
             self.constant_df = pd.read_excel(constant_file)
             
-            # Преобразуем координаты (запятая → точка)
             if 'Latitude' in self.constant_df.columns:
                 self.constant_df['Latitude'] = self.constant_df['Latitude'].astype(str).str.replace(',', '.').astype(float)
             if 'Longitude' in self.constant_df.columns:
                 self.constant_df['Longitude'] = self.constant_df['Longitude'].astype(str).str.replace(',', '.').astype(float)
+            
+            # 🔥 НОРМАЛИЗУЕМ ГОРОДА
+            if 'Город' in self.constant_df.columns:
+                self.constant_df['Город'] = self.constant_df['Город'].apply(normalize_city_name)
         
         # Переменная
         if variable_file is not None:
@@ -40,14 +49,16 @@ class PlanningEngine:
                 self.variable_df['Latitude'] = self.variable_df['Latitude'].astype(str).str.replace(',', '.').astype(float)
             if 'Longitude' in self.variable_df.columns:
                 self.variable_df['Longitude'] = self.variable_df['Longitude'].astype(str).str.replace(',', '.').astype(float)
+            
+            # 🔥 НОРМАЛИЗУЕМ ГОРОДА
+            if 'Город' in self.variable_df.columns:
+                self.variable_df['Город'] = self.variable_df['Город'].apply(normalize_city_name)
         
         # Ретро
         if retro_file is not None:
             self.retro_df = pd.read_excel(retro_file)
             
-            # Словарь для переименования ВСЕХ колонок Ретро
             retro_mapping = {}
-            
             for col in self.retro_df.columns:
                 col_lower = col.lower().strip()
                 if col_lower in ['широта', 'latitude', 'lat', 'гео/ш']:
@@ -71,6 +82,10 @@ class PlanningEngine:
                 self.retro_df['Latitude'] = self.retro_df['Latitude'].astype(str).str.replace(',', '.').astype(float)
             if 'Longitude' in self.retro_df.columns:
                 self.retro_df['Longitude'] = self.retro_df['Longitude'].astype(str).str.replace(',', '.').astype(float)
+            
+            # 🔥 НОРМАЛИЗУЕМ ГОРОДА
+            if 'Город' in self.retro_df.columns:
+                self.retro_df['Город'] = self.retro_df['Город'].apply(normalize_city_name)
         
         return self.constant_df is not None
     
