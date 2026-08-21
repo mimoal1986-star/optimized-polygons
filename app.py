@@ -562,6 +562,41 @@ with tab4:
     with col2:
         variable_threshold = st.slider("Порог переменной (%)", min_value=0, max_value=100, value=95)
         type_tolerance_percent = st.slider("Допуск по типам магазинов (%)", min_value=0, max_value=100, value=0)
+
+        st.markdown("---")
+    st.subheader("🎯 Настройка приоритетов (бонусы)")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        bonus_type = st.slider(
+            "Важность типа магазина",
+            min_value=0,
+            max_value=10,
+            value=6,
+            step=1,
+            help="Чем выше значение, тем важнее соблюдать пропорции по типам"
+        )
+    
+    with col2:
+        bonus_proximity = st.slider(
+            "Важность близости к Константе",
+            min_value=0,
+            max_value=10,
+            value=5,
+            step=1,
+            help="Чем выше значение, тем важнее, чтобы план был компактным"
+        )
+    
+    with col3:
+        bonus_client = st.slider(
+            "Важность клиента (Сети)",
+            min_value=0,
+            max_value=10,
+            value=4,
+            step=1,
+            help="Чем выше значение, тем важнее соблюдать пропорции по клиентам"
+        )
     
     st.markdown("---")
     
@@ -579,7 +614,10 @@ with tab4:
                         constant_threshold=constant_threshold,
                         variable_threshold=variable_threshold,
                         city_tolerance_percent=city_tolerance_percent,
-                        type_tolerance_percent=type_tolerance_percent
+                        type_tolerance_percent=type_tolerance_percent,
+                        bonus_type=bonus_type,
+                        bonus_proximity=bonus_proximity,
+                        bonus_client=bonus_client
                     )
                     
                     st.session_state['plan_result'] = result
