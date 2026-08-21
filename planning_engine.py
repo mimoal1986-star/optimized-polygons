@@ -128,90 +128,90 @@ class PlanningEngine:
 
     def calculate_score_v2(self, point, final_ap, type_ratios, client_ratios,
                        bonus_type=6, bonus_proximity=5, bonus_client=4):
-    """
-    Расчёт Score точки на основе:
-    1. Тип магазина (бонус)
-    2. Клиент (бонус)
-    3. Близость к Константе (добавляется отдельно)
-    """
-    score = 0
-    
-    # 1. Тип магазина
-    if bonus_type > 0 and 'RED PoS Group' in point and type_ratios:
-        point_type = point['RED PoS Group']
-        if not final_ap.empty:
-            total = len(final_ap)
-            type_counts = final_ap['RED PoS Group'].value_counts()
-            current_count = type_counts.get(point_type, 0)
-            current_ratio = (current_count / total * 100) if total > 0 else 0
-            expected_ratio = type_ratios.get(point_type, 0)
-            if expected_ratio > 0 and current_ratio < expected_ratio:
-                shortage = expected_ratio - current_ratio
-                bonus_multiplier = min(1.0, shortage / 10)
-                score += int(bonus_type * bonus_multiplier)
-    
-    # 2. Клиент
-    if bonus_client > 0 and 'Сеть' in point and client_ratios:
-        point_client = point['Сеть']
-        if not final_ap.empty:
-            total = len(final_ap)
-            client_counts = final_ap['Сеть'].value_counts()
-            current_count = client_counts.get(point_client, 0)
-            current_ratio = (current_count / total * 100) if total > 0 else 0
-            expected_ratio = client_ratios.get(point_client, 0)
-            if expected_ratio > 0 and current_ratio < expected_ratio:
-                shortage = expected_ratio - current_ratio
-                bonus_multiplier = min(1.0, shortage / 10)
-                score += int(bonus_client * bonus_multiplier)
-    
-    return score
+        """
+        Расчёт Score точки на основе:
+        1. Тип магазина (бонус)
+        2. Клиент (бонус)
+        3. Близость к Константе (добавляется отдельно)
+        """
+        score = 0
+        
+        # 1. Тип магазина
+        if bonus_type > 0 and 'RED PoS Group' in point and type_ratios:
+            point_type = point['RED PoS Group']
+            if not final_ap.empty:
+                total = len(final_ap)
+                type_counts = final_ap['RED PoS Group'].value_counts()
+                current_count = type_counts.get(point_type, 0)
+                current_ratio = (current_count / total * 100) if total > 0 else 0
+                expected_ratio = type_ratios.get(point_type, 0)
+                if expected_ratio > 0 and current_ratio < expected_ratio:
+                    shortage = expected_ratio - current_ratio
+                    bonus_multiplier = min(1.0, shortage / 10)
+                    score += int(bonus_type * bonus_multiplier)
+        
+        # 2. Клиент
+        if bonus_client > 0 and 'Сеть' in point and client_ratios:
+            point_client = point['Сеть']
+            if not final_ap.empty:
+                total = len(final_ap)
+                client_counts = final_ap['Сеть'].value_counts()
+                current_count = client_counts.get(point_client, 0)
+                current_ratio = (current_count / total * 100) if total > 0 else 0
+                expected_ratio = client_ratios.get(point_client, 0)
+                if expected_ratio > 0 and current_ratio < expected_ratio:
+                    shortage = expected_ratio - current_ratio
+                    bonus_multiplier = min(1.0, shortage / 10)
+                    score += int(bonus_client * bonus_multiplier)
+        
+        return score
 
     def calculate_top_proximity_points(self, city, candidates, constant_df, top_percent=20):
-    """
-    Возвращает список точек, входящих в топ X% самых близких к Константе
-    """
-    if not candidates or constant_df is None or constant_df.empty:
-        return []
-    
-    from shapely.geometry import Point
-    
-    # Фильтруем точки Константы по городу
-    city_constant = constant_df[constant_df['Город'] == city]
-    if city_constant.empty:
-        return []
-    
-    # Для каждой точки-кандидата считаем расстояние до ближайшей точки Константы
-    scored = []
-    for point in candidates:
-        point_geom = Point(point['Longitude'], point['Latitude'])
-        min_dist = float('inf')
-        for _, const_row in city_constant.iterrows():
-            const_geom = Point(const_row['Longitude'], const_row['Latitude'])
-            dist = point_geom.distance(const_geom)
-            if dist < min_dist:
-                min_dist = dist
-        scored.append((min_dist, point))
-    
-    # Сортируем по расстоянию
-    scored.sort(key=lambda x: x[0])
-    
-    # Берём топ X%
-    top_count = max(1, int(len(scored) * top_percent / 100))
-    return [point for _, point in scored[:top_count]]
-    
-    def get_statistics(self):
-        stats = {}
-        if self.constant_df is not None:
-            stats['constant_count'] = len(self.constant_df)
-            stats['constant_clients'] = self.constant_df['Сеть'].nunique()
-            stats['constant_cities'] = self.constant_df['Город'].nunique()
-        if self.variable_df is not None:
-            stats['variable_count'] = len(self.variable_df)
-            stats['variable_cities'] = self.variable_df['Город'].nunique()
-        if self.retro_df is not None:
-            stats['retro_count'] = len(self.retro_df)
-            stats['retro_auditors'] = self.retro_df['логин'].nunique()
-        return stats
+        """
+        Возвращает список точек, входящих в топ X% самых близких к Константе
+        """
+        if not candidates or constant_df is None or constant_df.empty:
+            return []
+        
+        from shapely.geometry import Point
+        
+        # Фильтруем точки Константы по городу
+        city_constant = constant_df[constant_df['Город'] == city]
+        if city_constant.empty:
+            return []
+        
+        # Для каждой точки-кандидата считаем расстояние до ближайшей точки Константы
+        scored = []
+        for point in candidates:
+            point_geom = Point(point['Longitude'], point['Latitude'])
+            min_dist = float('inf')
+            for _, const_row in city_constant.iterrows():
+                const_geom = Point(const_row['Longitude'], const_row['Latitude'])
+                dist = point_geom.distance(const_geom)
+                if dist < min_dist:
+                    min_dist = dist
+            scored.append((min_dist, point))
+        
+        # Сортируем по расстоянию
+        scored.sort(key=lambda x: x[0])
+        
+        # Берём топ X%
+        top_count = max(1, int(len(scored) * top_percent / 100))
+        return [point for _, point in scored[:top_count]]
+        
+        def get_statistics(self):
+            stats = {}
+            if self.constant_df is not None:
+                stats['constant_count'] = len(self.constant_df)
+                stats['constant_clients'] = self.constant_df['Сеть'].nunique()
+                stats['constant_cities'] = self.constant_df['Город'].nunique()
+            if self.variable_df is not None:
+                stats['variable_count'] = len(self.variable_df)
+                stats['variable_cities'] = self.variable_df['Город'].nunique()
+            if self.retro_df is not None:
+                stats['retro_count'] = len(self.retro_df)
+                stats['retro_auditors'] = self.retro_df['логин'].nunique()
+            return stats
     
     def check_point_in_polygons(self, lon, lat, polygons):
         if not polygons: return False
