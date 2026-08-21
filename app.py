@@ -162,18 +162,13 @@ def parse_fact_polygons_csv(file):
         if not line:
             continue
         
-        if not line.upper().startswith('POLYGON'):
+        # Ищем POLYGON в любом месте строки (не только в начале)
+        if 'POLYGON' not in line.upper():
             continue
         
-        parts = line.split(',', 2)
-        
-        if len(parts) < 2:
-            continue
-        
-        wkt_part = parts[0].strip()
-        name_part = parts[1].strip() if len(parts) > 1 else ''
-        
-        coords_match = re.search(r'\(\(([^)]+)\)\)', wkt_part)
+        # Разделяем на части
+        # Ищем часть с координатами: POLYGON ((...))
+        coords_match = re.search(r'\(\(([^)]+)\)\)', line)
         if not coords_match:
             continue
         
@@ -185,6 +180,7 @@ def parse_fact_polygons_csv(file):
             pair = pair.strip()
             if not pair:
                 continue
+            # Формат: "lon lat" (долгота широта)
             parts_coord = pair.split()
             if len(parts_coord) >= 2:
                 try:
@@ -197,13 +193,33 @@ def parse_fact_polygons_csv(file):
         if len(coordinates) < 3:
             continue
         
-        auditor_id = name_part.strip()
-        if not auditor_id:
-            auditor_id = f"Полигон_{len(polygons) + 1}"
+        # Извлекаем название (auditor_id)
+        # Пытаемся найти текст после закрывающих скобок
+        # Пример: ...)),СЃРѕРІРёРґ 4,
+        name_part = ''
+        # Ищем всё, что после "))"
+        after_polygon = re.search(r'\)\)[,]?\s*(.*?)$', line)
+        if after_polygon:
+            name_part = after_polygon.group(1).strip()
         
+        # Если название не найдено — используем номер
+        if not name_part:
+            auditor_id = f"Полигон_{len(polygons) + 1}"
+        else:
+            auditor_id = name_part
+        
+        # Нормализуем название
         auditor_id = auditor_id.replace('словид', 'SOVIAUD')
         auditor_id = auditor_id.replace('Словид', 'SOVIAUD')
+        
+        # Убираем лишние символы
+        auditor_id = auditor_id.replace('"', '').replace("'", "")
+        auditor_id = auditor_id.replace(',', '')
         auditor_id = auditor_id.strip()
+        
+        # Если название слишком длинное или пустое
+        if not auditor_id or len(auditor_id) > 50:
+            auditor_id = f"Полигон_{len(polygons) + 1}"
         
         poly_id = f"{auditor_id}_{len(polygons) + 1}"
         
