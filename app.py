@@ -4,41 +4,25 @@ from data_processor import DataProcessor
 from datetime import datetime
 import json
 import os
+import io
 from cluster_engine import ClusterEngine
 from polygon_builder import PolygonBuilder
 from planning_engine import PlanningEngine
 
 # ==============================================
-# ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ ЭКСПОРТА
+# ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 # ==============================================
 
 def generate_kml_simple(polygons):
-    """Генерирует KML с уникальными цветами для каждого аудитора в городе"""
-    if not polygons:
-        return None
-    
-    # ==============================================
-    # 1. Генерация цветов для каждого аудитора в каждом городе
-    # ==============================================
+    if not polygons: return None
     import hashlib
     
     def get_color_for_auditor(city, auditor_id):
-        """Генерирует уникальный цвет для аудитора в конкретном городе"""
-        # Создаем уникальный ключ: город + аудитор
         key = f"{city}_{auditor_id}"
-        
-        # Хешируем для получения стабильного цвета
         hash_obj = hashlib.md5(key.encode())
         hash_hex = hash_obj.hexdigest()
-        
-        # Берем первые 6 символов для цвета
-        color = hash_hex[:6]
-        
-        return color
+        return hash_hex[:6]
     
-    # ==============================================
-    # 2. Группируем полигоны по городу и аудитору
-    # ==============================================
     city_auditor_colors = {}
     for poly in polygons:
         city = poly['city']
@@ -47,9 +31,6 @@ def generate_kml_simple(polygons):
         if key not in city_auditor_colors:
             city_auditor_colors[key] = get_color_for_auditor(city, auditor)
     
-    # ==============================================
-    # 3. Генерируем KML
-    # ==============================================
     kml = '''<?xml version="1.0" encoding="UTF-8"?>
 <kml xmlns="http://www.opengis.net/kml/2.2">
 <Document>
@@ -61,26 +42,16 @@ def generate_kml_simple(polygons):
         coords = poly['coordinates']
         city = poly['city']
         auditor = poly['auditor_id']
-        
-        # Замыкаем полигон
         if coords and coords[0] != coords[-1]:
             coords = coords + [coords[0]]
-        
         coord_str = "\n".join([f"{lon},{lat},0" for lon, lat in coords])
-        
-        # Получаем цвет для этого аудитора в этом городе
         key = f"{city}_{auditor}"
-        color = city_auditor_colors.get(key, "ff00ff00")  # зеленый по умолчанию
-        
-        # Для KML цвет в формате AABBGGRR (прозрачность, синий, зеленый, красный)
-        # Нам нужен цвет в формате ffRRGGBB
+        color = city_auditor_colors.get(key, "ff00ff00")
         r = int(color[0:2], 16)
         g = int(color[2:4], 16)
         b = int(color[4:6], 16)
-        
-        # Формат KML: AABBGGRR, но мы хотим ffRRGGBB (непрозрачный, RGB)
         kml_color = f"ff{r:02x}{g:02x}{b:02x}"
-        kml_fill_color = f"7f{r:02x}{g:02x}{b:02x}"  # полупрозрачный для заливки
+        kml_fill_color = f"7f{r:02x}{g:02x}{b:02x}"
         
         kml = kml.replace('</Document>', f'''
 <Placemark>
@@ -108,14 +79,10 @@ def generate_kml_simple(polygons):
     return kml + '\n</kml>'
 
 def generate_csv_for_google(polygons):
-    """Генерирует CSV для импорта в Google My Maps"""
     import pandas as pd
-    
     rows = []
     for poly in polygons:
         center_lon, center_lat = poly['center']
-        
-        # Центр полигона как точка
         rows.append({
             'lat': center_lat,
             'lon': center_lon,
@@ -123,8 +90,6 @@ def generate_csv_for_google(polygons):
             'description': f"Площадь: {poly['area_km2']:.1f} км², Точек: {poly['points_count']}",
             'type': 'center'
         })
-        
-        # Границы полигона как отдельные точки
         for i, (lon, lat) in enumerate(poly['coordinates']):
             rows.append({
                 'lat': lat,
@@ -133,54 +98,30 @@ def generate_csv_for_google(polygons):
                 'description': f"Точка {i+1} из {len(poly['coordinates'])}",
                 'type': 'boundary'
             })
-    
     df = pd.DataFrame(rows)
     return df.to_csv(index=False, encoding='utf-8-sig')
 
-# ==============================================
-# ПАРСИНГ ФАКТ-ПОЛИГОНОВ ИЗ CSV
-# ==============================================
-
 def parse_fact_polygons_csv(file):
-    """
-    Парсит CSV с факт-полигонами.
-    Формат: WKT, название, описание
-    Пример: POLYGON ((44.63 48.88, 44.31 48.83, ...)),SOVIAUD4,
-    
-    Returns:
-        dict: {id: polygon_data}
-    """
     import re
-    
     polygons = {}
-    
     content = file.getvalue().decode('utf-8')
     lines = content.split('\n')
     
     for line in lines:
         line = line.strip()
-        if not line:
+        if not line or 'POLYGON' not in line.upper():
             continue
         
-        # Ищем POLYGON в любом месте строки (не только в начале)
-        if 'POLYGON' not in line.upper():
-            continue
-        
-        # Разделяем на части
-        # Ищем часть с координатами: POLYGON ((...))
         coords_match = re.search(r'\(\(([^)]+)\)\)', line)
         if not coords_match:
             continue
         
         coords_str = coords_match.group(1)
         coord_pairs = coords_str.split(',')
-        
         coordinates = []
         for pair in coord_pairs:
             pair = pair.strip()
-            if not pair:
-                continue
-            # Формат: "lon lat" (долгота широта)
+            if not pair: continue
             parts_coord = pair.split()
             if len(parts_coord) >= 2:
                 try:
@@ -193,36 +134,14 @@ def parse_fact_polygons_csv(file):
         if len(coordinates) < 3:
             continue
         
-        # Извлекаем название (auditor_id)
-        # Пытаемся найти текст после закрывающих скобок
-        # Пример: ...)),СЃРѕРІРёРґ 4,
-        name_part = ''
-        # Ищем всё, что после "))"
         after_polygon = re.search(r'\)\)[,]?\s*(.*?)$', line)
-        if after_polygon:
-            name_part = after_polygon.group(1).strip()
-        
-        # Если название не найдено — используем номер
-        if not name_part:
-            auditor_id = f"Полигон_{len(polygons) + 1}"
-        else:
-            auditor_id = name_part
-        
-        # Нормализуем название
-        auditor_id = auditor_id.replace('словид', 'SOVIAUD')
-        auditor_id = auditor_id.replace('Словид', 'SOVIAUD')
-        
-        # Убираем лишние символы
-        auditor_id = auditor_id.replace('"', '').replace("'", "")
-        auditor_id = auditor_id.replace(',', '')
-        auditor_id = auditor_id.strip()
-        
-        # Если название слишком длинное или пустое
+        auditor_id = after_polygon.group(1).strip() if after_polygon else f"Полигон_{len(polygons) + 1}"
+        auditor_id = auditor_id.replace('словид', 'SOVIAUD').replace('Словид', 'SOVIAUD')
+        auditor_id = auditor_id.replace('"', '').replace("'", "").replace(',', '').strip()
         if not auditor_id or len(auditor_id) > 50:
             auditor_id = f"Полигон_{len(polygons) + 1}"
         
         poly_id = f"{auditor_id}_{len(polygons) + 1}"
-        
         polygons[poly_id] = {
             'id': poly_id,
             'auditor_id': auditor_id,
@@ -232,18 +151,21 @@ def parse_fact_polygons_csv(file):
     
     return polygons
 
-# Настройка страницы
+# ==============================================
+# НАСТРОЙКА СТРАНИЦЫ
+# ==============================================
 st.set_page_config(
     page_title="Сервис полигонов аудиторов",
     page_icon="🗺️",
     layout="wide"
 )
 
-# Инициализация
+# ==============================================
+# ИНИЦИАЛИЗАЦИЯ
+# ==============================================
 @st.cache_resource
 def init_processors():
-    dp = DataProcessor()
-    return dp
+    return DataProcessor()
 
 try:
     data_processor = init_processors()
@@ -256,15 +178,15 @@ except Exception as e:
     st.error(f"Ошибка инициализации: {str(e)}")
     st.stop()
 
-# Заголовок
 st.title("🗺️ Сервис генерации полигонов аудиторов")
 st.markdown("---")
 
-# Боковая панель
+# ==============================================
+# БОКОВАЯ ПАНЕЛЬ
+# ==============================================
 with st.sidebar:
     st.header("📊 Управление данными")
     
-    # Загрузка файла с защитой от повторной обработки
     uploaded_file = st.file_uploader(
         "Загрузите Excel файл с данными",
         type=['xlsx', 'xls'],
@@ -274,19 +196,14 @@ with st.sidebar:
     if uploaded_file is not None:
         if ('file_processed' not in st.session_state or 
             st.session_state.file_processed != uploaded_file.name):
-            
             progress_bar = st.progress(0)
             status_text = st.empty()
-            
             try:
                 status_text.text("Чтение файла...")
                 progress_bar.progress(20)
-                
                 count, message = data_processor.process_uploaded_file(uploaded_file)
-                
                 progress_bar.progress(80)
                 status_text.text("Сохранение данных...")
-                
                 if count:
                     progress_bar.progress(100)
                     status_text.text("✅ Готово!")
@@ -296,23 +213,18 @@ with st.sidebar:
                     progress_bar.progress(100)
                     status_text.text("❌ Ошибка!")
                     st.error(message)
-                
                 progress_bar.empty()
                 status_text.empty()
-                
             except Exception as e:
                 progress_bar.empty()
                 status_text.empty()
                 st.error(f"Ошибка при загрузке: {str(e)}")
         else:
             st.success(f"✅ Файл '{uploaded_file.name}' уже загружен")
-            
-            # Показываем ошибки, если они есть
             if 'error_points' in st.session_state:
                 if st.session_state['error_points']:
                     with st.expander("⚠️ Найдены ошибочные координаты"):
-                        st.warning(f"Обнаружено {len(st.session_state['error_points'])} точек с некорректными координатами (дальше 50 км от центра города)")
-                        
+                        st.warning(f"Обнаружено {len(st.session_state['error_points'])} точек")
                         excel_data = data_processor.export_errors_to_excel(st.session_state['error_points'])
                         if excel_data:
                             st.download_button(
@@ -322,11 +234,9 @@ with st.sidebar:
                                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                             )
                 else:
-                    st.success("✅ Ошибок не найдено! Все координаты корректны.")                     
+                    st.success("✅ Ошибок не найдено! Все координаты корректны.")
     
     st.markdown("---")
-    
-    # Статистика
     st.header("📈 Статистика")
     try:
         stats = data_processor.get_statistics()
@@ -341,12 +251,8 @@ with st.sidebar:
         st.error(f"Ошибка получения статистики: {str(e)}")
     
     st.markdown("---")
-    
-    # Действия с данными
     st.header("⚙️ Действия")
-    
     col1, col2 = st.columns(2)
-    
     with col1:
         if st.button("💾 Сохранить данные", type="primary"):
             success, message = data_processor.save_data()
@@ -355,7 +261,6 @@ with st.sidebar:
                 st.success(message)
             else:
                 st.error(message)
-    
     with col2:
         if st.button("🗑️ Очистить всё", type="secondary"):
             data_processor.clear_data()
@@ -364,14 +269,11 @@ with st.sidebar:
             if 'polygons' in st.session_state:
                 del st.session_state.polygons
             st.success("✅ Данные очищены")
-            
+    
     st.markdown("---")
-    
     st.subheader("🗺️ Факт-полигоны")
-    
     fact_count = len(st.session_state.get('fact_polygons', {}))
     st.metric("Загружено полигонов", fact_count)
-    
     if st.button("🗑️ Очистить полигоны", type="secondary"):
         success, message = data_processor.clear_fact_polygons()
         if success:
@@ -381,83 +283,42 @@ with st.sidebar:
         else:
             st.error(message)
     
-    # Параметры генерации
     st.markdown("---")
     st.header("🔧 Параметры полигонов")
-    
-    min_points = st.slider(
-        "Минимальное количество точек",
-        min_value=3,
-        max_value=20,
-        value=3
-    )
-    
-    buffer_km = st.slider(
-        "Размер буфера (км)",
-        min_value=0.0,
-        max_value=5.0,
-        value=0.5,
-        step=0.1
-    )
+    min_points = st.slider("Минимальное количество точек", min_value=3, max_value=20, value=3)
+    buffer_km = st.slider("Размер буфера (км)", min_value=0.0, max_value=5.0, value=0.5, step=0.1)
     
     st.markdown("---")
     st.subheader("🔧 Параметры кластеризации")
-    
-    min_points = st.slider(
-        "Минимальное количество точек в кластере",
-        min_value=3,
-        max_value=10,
-        value=3,
-        help="Кластеры с меньшим количеством точек будут отброшены"
-    )
-    
-    auto_eps = st.checkbox(
-        "Автоматический подбор eps (рекомендуется)",
-        value=True,
-        help="Автоматически определяет радиус кластеризации для каждого города"
-    )
-    
+    min_points = st.slider("Минимальное количество точек в кластере", min_value=3, max_value=10, value=3)
+    auto_eps = st.checkbox("Автоматический подбор eps (рекомендуется)", value=True)
     if not auto_eps:
-        eps_km = st.slider(
-            "Радиус кластеризации (км)",
-            min_value=0.5,
-            max_value=5.0,
-            value=1.0,
-            step=0.1,
-            help="Используется только если автоматический подбор отключен"
-        )
+        eps_km = st.slider("Радиус кластеризации (км)", min_value=0.5, max_value=5.0, value=1.0, step=0.1)
 
-# Основная область
+# ==============================================
+# ОСНОВНАЯ ОБЛАСТЬ
+# ==============================================
 tab1, tab2, tab3, tab4 = st.tabs(
     ["📋 Данные", "📐 Полигоны", "📥 Экспорт", "📅 Планирование"]
 )
 
 with tab1:
     st.header("Просмотр данных")
-    
     auditors = data_processor.get_auditors()
-    selected_auditor = st.selectbox(
-        "Выберите аудитора",
-        ["Все"] + auditors if auditors else ["Все"]
-    )
-    
+    selected_auditor = st.selectbox("Выберите аудитора", ["Все"] + auditors if auditors else ["Все"])
     if selected_auditor == "Все":
         data_list = list(data_processor.data.values())
     else:
         data_list = data_processor.get_data_by_auditor(selected_auditor)
-    
     if data_list:
         df = pd.DataFrame(data_list)
-        
         if 'lat' in df.columns and 'lon' in df.columns:
             df['lat'] = pd.to_numeric(df['lat'], errors='coerce')
             df['lon'] = pd.to_numeric(df['lon'], errors='coerce')
             df = df.dropna(subset=['lat', 'lon'])
-        
         if not df.empty:
             display_cols = ['tp_id', 'auditor', 'city', 'visit_date', 'lat', 'lon']
             display_cols = [col for col in display_cols if col in df.columns]
-            
             search = st.text_input("🔍 Поиск по ТП или городу", "")
             if search:
                 mask = pd.Series(False, index=df.index)
@@ -466,18 +327,11 @@ with tab1:
                 if 'city' in df.columns:
                     mask = mask | df['city'].str.contains(search, case=False, na=False)
                 df = df[mask]
-            
             page_size = 50
             total_records = len(df)
             total_pages = max(1, (total_records + page_size - 1) // page_size)
-            
             if total_pages > 1:
-                page = st.number_input(
-                    f"Страница (всего {total_pages})", 
-                    min_value=1, 
-                    max_value=total_pages, 
-                    value=1
-                )
+                page = st.number_input(f"Страница (всего {total_pages})", min_value=1, max_value=total_pages, value=1)
                 start_idx = (page - 1) * page_size
                 end_idx = min(start_idx + page_size, total_records)
                 df_display = df.iloc[start_idx:end_idx]
@@ -485,12 +339,7 @@ with tab1:
             else:
                 df_display = df
                 st.caption(f"Всего записей: {total_records}")
-            
-            st.dataframe(
-                df_display[display_cols],
-                use_container_width=True,
-                height=400
-            )
+            st.dataframe(df_display[display_cols], use_container_width=True, height=400)
         else:
             st.info("Нет данных с валидными координатами")
     else:
@@ -498,55 +347,36 @@ with tab1:
 
 with tab2:
     st.header("📐 Генерация полигонов")
-    
     if not data_processor.data:
         st.warning("Нет данных для генерации полигонов. Сначала загрузите файл с данными.")
     else:
-        # Показываем статистику перед генерацией
         auditors = data_processor.get_auditors()
-        
         if not auditors:
             st.warning("Нет аудиторов в данных")
         else:
             st.info(f"👤 Найдено аудиторов: {len(auditors)}")
-            
             if st.button("🚀 Создать полигоны для всех аудиторов", type="primary"):
                 with st.spinner("🔄 Кластеризация и построение полигонов..."):
                     progress_bar = st.progress(0)
                     status_text = st.empty()
-                    
                     all_polygons = []
                     errors = []
-                    
                     total_auditors = len(auditors)
-                    
                     for i, auditor in enumerate(auditors):
                         status_text.text(f"Обработка: {auditor} ({i+1}/{total_auditors})")
-                        
-                        # Создаем полигоны для аудитора
                         polygons = polygon_builder.build_polygons_for_auditor(
-                            auditor,
-                            buffer_km=buffer_km,
-                            min_points=min_points
+                            auditor, buffer_km=buffer_km, min_points=min_points
                         )
-                        
                         if polygons:
                             all_polygons.extend(polygons)
                         else:
                             errors.append(f"{auditor}: не удалось создать полигоны")
-                        
                         progress_bar.progress((i + 1) / total_auditors)
-                    
                     progress_bar.progress(1.0)
                     status_text.text("✅ Готово!")
-                    
-                    # Сохраняем в сессию
                     st.session_state['polygons'] = all_polygons
-                    
                     if all_polygons:
-                        # Статистика по полигонам
                         cities_count = len(set([p['city'] for p in all_polygons]))
-                        
                         col1, col2, col3 = st.columns(3)
                         with col1:
                             st.metric("Всего полигонов", len(all_polygons))
@@ -555,66 +385,49 @@ with tab2:
                         with col3:
                             total_area = sum([p['area_km2'] for p in all_polygons])
                             st.metric("Общая площадь (км²)", f"{total_area:.1f}")
-                        
                         st.success(f"✅ Создано {len(all_polygons)} полигонов для {len(auditors)} аудиторов")
                     else:
                         st.error("❌ Не удалось создать ни одного полигона")
-                    
                     if errors:
                         with st.expander("⚠️ Ошибки при создании полигонов"):
                             for error in errors:
                                 st.code(error)
+    
     st.markdown("---")
     st.subheader("📥 Загрузка факт-полигонов")
-    
     fact_polygons_file = st.file_uploader(
         "Загрузите CSV с факт-полигонами",
         type=['csv'],
         help="Файл должен содержать колонки: WKT, название, описание"
     )
-    
     if fact_polygons_file is not None:
         with st.spinner("Загрузка и парсинг полигонов..."):
             try:
                 polygons_dict = parse_fact_polygons_csv(fact_polygons_file)
-                
                 if not polygons_dict:
                     st.error("❌ Не удалось распарсить полигоны. Проверьте формат файла.")
                 else:
                     success, message = data_processor.save_fact_polygons(polygons_dict)
-                    
                     if success:
                         st.session_state['fact_polygons'] = polygons_dict
                         st.success(f"✅ Загружено {len(polygons_dict)} полигонов")
-                        
                         with st.expander("📋 Список загруженных полигонов"):
                             for poly_id, poly_data in polygons_dict.items():
                                 st.write(f"• **{poly_id}**: {poly_data['auditor_id']} — {len(poly_data['coordinates'])} точек")
                     else:
                         st.error(message)
-                        
             except Exception as e:
                 st.error(f"❌ Ошибка при загрузке: {str(e)}")
 
 with tab3:
     st.header("📤 Экспорт данных")
-    
     if 'polygons' in st.session_state and st.session_state['polygons']:
         polygons = st.session_state['polygons']
-        
-        # Получаем список уникальных городов
         cities = sorted(set([p['city'] for p in polygons]))
-        
         st.subheader("🏙️ Экспорт по городам")
-        
         col1, col2 = st.columns([2, 1])
-        
         with col1:
-            selected_city = st.selectbox(
-                "Выберите город для экспорта:",
-                ["Все города"] + cities
-            )
-        
+            selected_city = st.selectbox("Выберите город для экспорта:", ["Все города"] + cities)
         with col2:
             if st.button("📥 Создать KML", type="primary"):
                 with st.spinner("Создание KML файла..."):
@@ -627,7 +440,6 @@ with tab3:
                         kml_content = generate_kml_simple(city_polygons)
                         filename = f"polygons_{selected_city}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.kml"
                         label = f"Скачать KML ({selected_city})"
-                    
                     if kml_content:
                         st.download_button(
                             label=label,
@@ -639,8 +451,6 @@ with tab3:
                         st.success(f"✅ KML создан: {len(city_polygons if selected_city != 'Все города' else polygons)} полигонов")
                     else:
                         st.error("Ошибка при создании KML")
-        
-        # Статистика по городам
         with st.expander("📊 Статистика по городам", expanded=False):
             city_stats = {}
             for p in polygons:
@@ -648,13 +458,10 @@ with tab3:
                 if city not in city_stats:
                     city_stats[city] = 0
                 city_stats[city] += 1
-            
             st.write("Количество полигонов по городам:")
             for city, count in sorted(city_stats.items()):
                 st.write(f"  • {city}: {count} полигонов")
-        
         st.subheader("🗺️ Экспорт всех полигонов")
-        
         if st.button("📥 Создать KML (все города)"):
             with st.spinner("Создание KML файла..."):
                 kml_content = generate_kml_simple(polygons)
@@ -668,9 +475,7 @@ with tab3:
                     )
                 else:
                     st.error("Ошибка при создании KML")
-        
         st.subheader("📊 Экспорт в CSV для Google My Maps")
-        
         if st.button("📥 Создать CSV"):
             with st.spinner("Создание CSV файла..."):
                 csv_content = generate_csv_for_google(polygons)
@@ -691,180 +496,87 @@ with tab4:
     st.header("📅 Формирование плана визитов (АП)")
     st.markdown("---")
     
-    # ==============================================
-    # 1. ЗАГРУЗКА ФАЙЛОВ
-    # ==============================================
     st.subheader("📤 Загрузка файлов АП")
-    
     col1, col2, col3 = st.columns(3)
-    
     with col1:
-        constant_file = st.file_uploader(
-            "Константа АП",
-            type=['xlsx'],
-            help="Файл с постоянными точками (≈70% плана)",
-            key="constant_uploader"
-        )
-    
+        constant_file = st.file_uploader("Константа АП", type=['xlsx'], key="constant_uploader")
     with col2:
-        variable_file = st.file_uploader(
-            "Переменная АП",
-            type=['xlsx'],
-            help="Файл с переменными точками (≈30% плана)",
-            key="variable_uploader"
-        )
-    
+        variable_file = st.file_uploader("Переменная АП", type=['xlsx'], key="variable_uploader")
     with col3:
-        retro_file = st.file_uploader(
-            "Ретро АП",
-            type=['xlsx'],
-            help="Файл с точками из прошлых периодов (max 10%)",
-            key="retro_uploader"
-        )
+        retro_file = st.file_uploader("Ретро АП", type=['xlsx'], key="retro_uploader")
     
-    # ==============================================
-    # 2. ЗАГРУЗКА И СТАТИСТИКА
-    # ==============================================
     if constant_file is not None:
         with st.spinner("Загрузка данных..."):
-            # Загружаем файлы
             planning_engine.load_files(constant_file, variable_file, retro_file)
-            
-            # Вычисляем пропорции клиентов
             if constant_file is not None:
                 client_ratios = planning_engine.calculate_client_ratios()
                 st.session_state['client_ratios'] = client_ratios
-            
-            # Показываем статистику
+                city_ratios = planning_engine.calculate_city_ratios()
+                st.session_state['city_ratios'] = city_ratios
             stats = planning_engine.get_statistics()
-            
             st.success("✅ Данные загружены")
             
             st.subheader("📊 Статистика по загруженным данным")
-            
             col1, col2, col3, col4 = st.columns(4)
-            
             with col1:
-                st.metric("Целевой объем", stats.get('target_ap', 0))
-                st.metric("Фактический объем", stats.get('final_count', 0))
-                st.metric("Выполнение плана", f"{stats.get('plan_completion', 0):.1f}%")
-            
+                st.metric("Константа (строк)", stats.get('constant_count', 0))
+                st.caption(f"Клиентов: {stats.get('constant_clients', 0)}")
+                st.caption(f"Городов: {stats.get('constant_cities', 0)}")
             with col2:
-                st.metric("Константа (всего)", stats.get('constant_total', 0))
-                st.metric("Константа (отобрано)", stats.get('constant_selected', 0))
-                st.metric("Утилизация константы", f"{stats.get('constant_utilization', 0):.1f}%")
-            
+                st.metric("Переменная (строк)", stats.get('variable_count', 0))
+                st.caption(f"Городов: {stats.get('variable_cities', 0)}")
             with col3:
-                st.metric("Переменная (всего)", stats.get('variable_total', 0))
-                st.metric("Переменная (отобрано)", stats.get('variable_selected', 0))
-                st.metric("Утилизация переменной", f"{stats.get('variable_utilization', 0):.1f}%")
+                st.metric("Ретро (строк)", stats.get('retro_count', 0))
+                st.caption(f"Аудиторов: {stats.get('retro_auditors', 0)}")
             
-            with col4:
-                st.metric("Ретро (всего)", stats.get('retro_total', 0))
-                st.metric("Ретро (отобрано)", stats.get('retro_selected', 0))
-                st.metric("Утилизация ретро", f"{stats.get('retro_utilization', 0):.1f}%")
-            
-            # Показываем пропорции клиентов
             if 'client_ratios' in st.session_state and st.session_state['client_ratios']:
                 with st.expander("📊 Пропорции по клиентам (из Константы)"):
-                    client_ratios = st.session_state['client_ratios']
-                    # Сортируем по убыванию
-                    sorted_clients = sorted(client_ratios.items(), key=lambda x: x[1], reverse=True)
-                    
-                    # Показываем топ-10
+                    sorted_clients = sorted(st.session_state['client_ratios'].items(), key=lambda x: x[1], reverse=True)
                     st.write("**Топ-10 клиентов:**")
                     for i, (client, ratio) in enumerate(sorted_clients[:10], 1):
                         st.write(f"{i}. **{client}** — {ratio:.1f}%")
-                    
                     if len(sorted_clients) > 10:
                         st.caption(f"... и еще {len(sorted_clients) - 10} клиентов")
-                    
-                    # Кнопка для скачивания полного списка
-                    if st.button("📥 Скачать полный список клиентов (CSV)"):
-                        import pandas as pd
-                        df_clients = pd.DataFrame(sorted_clients, columns=['Клиент', 'Доля (%)'])
-                        csv = df_clients.to_csv(index=False, encoding='utf-8-sig')
-                        st.download_button(
-                            label="Скачать CSV",
-                            data=csv,
-                            file_name="пропорции_клиентов.csv",
-                            mime="text/csv"
-                        )
+            
+            if 'city_ratios' in st.session_state and st.session_state['city_ratios']:
+                with st.expander("📊 Пропорции по городам (из Константы)"):
+                    sorted_cities = sorted(st.session_state['city_ratios'].items(), key=lambda x: x[1], reverse=True)
+                    st.write("**Города:**")
+                    for i, (city, ratio) in enumerate(sorted_cities, 1):
+                        st.write(f"{i}. **{city}** — {ratio:.1f}%")
     
-    # ==============================================
-    # 3. ПАРАМЕТРЫ ФОРМИРОВАНИЯ ПЛАНА
-    # ==============================================
     st.markdown("---")
     st.subheader("⚙️ Параметры формирования плана")
-    
     col1, col2 = st.columns(2)
-    
     with col1:
-        target_ap = st.number_input(
-            "Целевой объем АП (месяц)",
-            min_value=1,
-            max_value=100000,
-            value=5000,
-            step=100,
-            help="Общее количество визитов, которое нужно запланировать"
-        )
-        
-        constant_threshold = st.slider(
-            "Порог константы (%)",
-            min_value=0,
-            max_value=100,
-            value=95,
-            help="Минимальный % константы, который должен попасть в АП"
-        )
-    
+        target_ap = st.number_input("Целевой объем АП (месяц)", min_value=1, max_value=100000, value=5000, step=100)
+        constant_threshold = st.slider("Порог константы (%)", min_value=0, max_value=100, value=95)
+        city_tolerance_percent = st.slider("Допуск по городам (%)", min_value=0, max_value=100, value=0)
     with col2:
-        variable_threshold = st.slider(
-            "Порог переменной (%)",
-            min_value=0,
-            max_value=100,
-            value=95,
-            help="Минимальный % от целевого АП, который должен быть собран"
-        )
-        
-        type_tolerance = st.slider(
-            "Допуск по типам магазинов (пп)",
-            min_value=0,
-            max_value=100,
-            value=0,
-            help="Отклонение от пропорций в процентных пунктах (п.п.). 100% = можно сделать 100% любого типа"
-        )
+        variable_threshold = st.slider("Порог переменной (%)", min_value=0, max_value=100, value=95)
+        type_tolerance_percent = st.slider("Допуск по типам магазинов (%)", min_value=0, max_value=100, value=0)
     
-    # ==============================================
-    # 4. КНОПКА ЗАПУСКА
-    # ==============================================
     st.markdown("---")
     
     if st.button("🚀 Сформировать план", type="primary"):
         if constant_file is None:
             st.error("❌ Загрузите файл Константы!")
         else:
-            # Проверяем наличие ретро-полигонов
             if 'fact_polygons' not in st.session_state or not st.session_state['fact_polygons']:
                 st.error("❌ Сначала загрузите факт-полигоны в разделе '📐 Полигоны'!")
             else:
                 with st.spinner("🔄 Формирование плана визитов..."):
-                    # Запускаем формирование плана
-                    result = planning_engine.build_plan_with_fact_polygons(
+                    result = planning_engine.build_plan_balanced(
                         fact_polygons=st.session_state.get('fact_polygons', {}),
                         target_ap=target_ap,
                         constant_threshold=constant_threshold,
                         variable_threshold=variable_threshold,
-                        type_tolerance=type_tolerance
+                        city_tolerance_percent=city_tolerance_percent,
+                        type_tolerance_percent=type_tolerance_percent
                     )
                     
-                    # Сохраняем результат в session_state
                     st.session_state['plan_result'] = result
                     
-                    # ==============================================
-                    # ОТОБРАЖЕНИЕ РЕЗУЛЬТАТА
-                    # ==============================================
-                    
-                    # 1. Статус
                     if result['status'] == 'success':
                         st.success(result['message'])
                     elif result['status'] == 'warning':
@@ -877,48 +589,39 @@ with tab4:
                         st.error(result['message'])
                         st.stop()
                     
-                    # 2. Статистика
                     stats = result.get('statistics', {})
                     util = result.get('utilization', {})
                     
                     st.subheader("📊 Статистика формирования плана")
-                    
                     col1, col2, col3, col4 = st.columns(4)
-                    
                     with col1:
                         st.metric("Целевой объем", stats.get('target_ap', 0))
                         st.metric("Фактический объем", stats.get('final_count', 0))
                         st.metric("Выполнение плана", f"{stats.get('plan_completion', 0):.1f}%")
-                    
                     with col2:
                         st.metric("Константа (всего)", stats.get('constant_total', 0))
                         st.metric("Константа (отобрано)", stats.get('constant_selected', 0))
                         st.metric("Утилизация константы", f"{stats.get('constant_utilization', 0):.1f}%")
-                    
                     with col3:
                         st.metric("Переменная (всего)", stats.get('variable_total', 0))
                         st.metric("Переменная (отобрано)", stats.get('variable_selected', 0))
                         st.metric("Утилизация переменной", f"{stats.get('variable_utilization', 0):.1f}%")
-                    
                     with col4:
                         st.metric("Ретро (всего)", stats.get('retro_total', 0))
                         st.metric("Ретро (отобрано)", stats.get('retro_selected', 0))
                         st.metric("Утилизация ретро", f"{stats.get('retro_utilization', 0):.1f}%")
                     
-                    # 3. Детальная утилизация
                     with st.expander("📊 Детальная утилизация источников"):
                         st.write("**Источники АП:**")
-                        st.write(f"- Константа: {util['constant']['selected']} из {util['constant']['total']} ({util['constant']['utilization']:.1f}%)")
-                        st.write(f"- Переменная: {util['variable']['selected']} из {util['variable']['total']} ({util['variable']['utilization']:.1f}%)")
-                        st.write(f"- Ретро: {util['retro']['selected']} из {util['retro']['total']} ({util['retro']['utilization']:.1f}%)")
+                        st.write(f"- Константа: {util.get('constant', {}).get('selected', 0)} из {util.get('constant', {}).get('total', 0)} ({util.get('constant', {}).get('utilization', 0):.1f}%)")
+                        st.write(f"- Переменная: {util.get('variable', {}).get('selected', 0)} из {util.get('variable', {}).get('total', 0)} ({util.get('variable', {}).get('utilization', 0):.1f}%)")
+                        st.write(f"- Ретро: {util.get('retro', {}).get('selected', 0)} из {util.get('retro', {}).get('total', 0)} ({util.get('retro', {}).get('utilization', 0):.1f}%)")
                     
-                    # 4. Пропорции по типам (сравнение)
                     if 'final_ap' in result and not result['final_ap'].empty:
                         with st.expander("📊 Пропорции по типам магазинов"):
                             final_ap = result['final_ap']
                             type_counts = final_ap['RED PoS Group'].value_counts()
                             total = len(final_ap)
-                            
                             type_data = []
                             for type_name, expected_ratio in planning_engine.type_ratios.items():
                                 actual_count = type_counts.get(type_name, 0)
@@ -929,23 +632,38 @@ with tab4:
                                     'Фактическая доля (%)': actual_ratio,
                                     'Отклонение': actual_ratio - expected_ratio
                                 })
-                            
                             st.dataframe(pd.DataFrame(type_data), use_container_width=True, hide_index=True)
+                        
+                        with st.expander("📊 Пропорции по городам (факт)"):
+                            city_counts = final_ap['Город'].value_counts()
+                            total = len(final_ap)
+                            city_data = []
+                            for city, count in city_counts.items():
+                                actual_ratio = (count / total * 100) if total > 0 else 0
+                                expected_ratio = st.session_state.get('city_ratios', {}).get(city, 0)
+                                city_data.append({
+                                    'Город': city,
+                                    'Фактическая доля (%)': actual_ratio,
+                                    'Ожидаемая доля (%)': expected_ratio,
+                                    'Отклонение': actual_ratio - expected_ratio
+                                })
+                            st.dataframe(pd.DataFrame(city_data), use_container_width=True, hide_index=True)
                     
-                    # 5. Кнопка экспорта финальной АП
+                    if 'error_points' in result and result['error_points']:
+                        with st.expander("⚠️ Точки Константы вне полигонов"):
+                            error_df = pd.DataFrame(result['error_points'])
+                            st.write(f"Найдено {len(error_df)} точек, не попавших в полигоны")
+                            st.dataframe(error_df.head(20), use_container_width=True)
+                            if len(error_df) > 20:
+                                st.caption(f"... и еще {len(error_df) - 20} точек")
+                    
                     if 'final_ap' in result and not result['final_ap'].empty:
                         st.markdown("---")
                         st.subheader("📥 Экспорт финальной АП")
-                        
-                        # Преобразуем в нужный формат
                         export_df = result['final_ap'].copy()
-                        
-                        # Добавляем колонку "Источник" если её нет
                         if 'Источник' not in export_df.columns:
-                            # Определяем источник по наличию в соответствующих DataFrame
                             constant_ids = set(result['constant_selected'].index) if not result['constant_selected'].empty else set()
                             variable_ids = set(result['variable_selected'].index) if not result['variable_selected'].empty else set()
-                            
                             def get_source(idx):
                                 if idx in constant_ids:
                                     return 'Константа'
@@ -953,15 +671,11 @@ with tab4:
                                     return 'Переменная'
                                 else:
                                     return 'Ретро'
-                            
                             export_df['Источник'] = export_df.index.map(get_source)
                         
-                        # Выбираем нужные колонки
                         columns_order = ['Аудитор', 'Сеть', 'Customer Name', 'RED PoS Group', 'Город', 'Street Name', 'Longitude', 'Latitude', 'Источник']
                         available_cols = [col for col in columns_order if col in export_df.columns]
                         export_df = export_df[available_cols]
-                        
-                        # Переименовываем для понятности
                         rename_map = {
                             'Customer Name': 'Имя клиента',
                             'RED PoS Group': 'Тип магазина',
@@ -971,17 +685,13 @@ with tab4:
                             'Latitude': 'Широта'
                         }
                         export_df = export_df.rename(columns=rename_map)
-                        
                         st.dataframe(export_df.head(20), use_container_width=True)
                         st.caption(f"Показано первые 20 из {len(export_df)} строк")
                         
-                        # Кнопка скачивания
                         import io
                         output = io.BytesIO()
                         with pd.ExcelWriter(output, engine='openpyxl') as writer:
                             export_df.to_excel(writer, sheet_name='Финальная АП', index=False)
-                            
-                            # Добавляем лист со статистикой
                             stats_df = pd.DataFrame([
                                 ['Параметр', 'Значение'],
                                 ['Целевой объем', stats.get('target_ap', 0)],
@@ -992,9 +702,7 @@ with tab4:
                                 ['Ретро (отобрано)', stats.get('retro_selected', 0)],
                             ])
                             stats_df.to_excel(writer, sheet_name='Статистика', index=False, header=False)
-                        
                         output.seek(0)
-                        
                         st.download_button(
                             label="📥 Скачать финальную АП (Excel)",
                             data=output.getvalue(),
@@ -1002,8 +710,6 @@ with tab4:
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                             use_container_width=True
                         )
-# Footer
+
 st.markdown("---")
 st.caption("🚀 Сервис разработан для генерации полигонов аудиторов на основе данных посещений")
-
-
