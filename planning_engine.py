@@ -125,6 +125,79 @@ class PlanningEngine:
                 type_ratios[type_name] = (count / total_rows) * 100
         
         return type_ratios
+
+    def calculate_score_v2(self, point, final_ap, type_ratios, client_ratios,
+                       bonus_type=6, bonus_proximity=5, bonus_client=4):
+    """
+    Расчёт Score точки на основе:
+    1. Тип магазина (бонус)
+    2. Клиент (бонус)
+    3. Близость к Константе (добавляется отдельно)
+    """
+    score = 0
+    
+    # 1. Тип магазина
+    if bonus_type > 0 and 'RED PoS Group' in point and type_ratios:
+        point_type = point['RED PoS Group']
+        if not final_ap.empty:
+            total = len(final_ap)
+            type_counts = final_ap['RED PoS Group'].value_counts()
+            current_count = type_counts.get(point_type, 0)
+            current_ratio = (current_count / total * 100) if total > 0 else 0
+            expected_ratio = type_ratios.get(point_type, 0)
+            if expected_ratio > 0 and current_ratio < expected_ratio:
+                shortage = expected_ratio - current_ratio
+                bonus_multiplier = min(1.0, shortage / 10)
+                score += int(bonus_type * bonus_multiplier)
+    
+    # 2. Клиент
+    if bonus_client > 0 and 'Сеть' in point and client_ratios:
+        point_client = point['Сеть']
+        if not final_ap.empty:
+            total = len(final_ap)
+            client_counts = final_ap['Сеть'].value_counts()
+            current_count = client_counts.get(point_client, 0)
+            current_ratio = (current_count / total * 100) if total > 0 else 0
+            expected_ratio = client_ratios.get(point_client, 0)
+            if expected_ratio > 0 and current_ratio < expected_ratio:
+                shortage = expected_ratio - current_ratio
+                bonus_multiplier = min(1.0, shortage / 10)
+                score += int(bonus_client * bonus_multiplier)
+    
+    return score
+
+    def calculate_top_proximity_points(self, city, candidates, constant_df, top_percent=20):
+    """
+    Возвращает список точек, входящих в топ X% самых близких к Константе
+    """
+    if not candidates or constant_df is None or constant_df.empty:
+        return []
+    
+    from shapely.geometry import Point
+    
+    # Фильтруем точки Константы по городу
+    city_constant = constant_df[constant_df['Город'] == city]
+    if city_constant.empty:
+        return []
+    
+    # Для каждой точки-кандидата считаем расстояние до ближайшей точки Константы
+    scored = []
+    for point in candidates:
+        point_geom = Point(point['Longitude'], point['Latitude'])
+        min_dist = float('inf')
+        for _, const_row in city_constant.iterrows():
+            const_geom = Point(const_row['Longitude'], const_row['Latitude'])
+            dist = point_geom.distance(const_geom)
+            if dist < min_dist:
+                min_dist = dist
+        scored.append((min_dist, point))
+    
+    # Сортируем по расстоянию
+    scored.sort(key=lambda x: x[0])
+    
+    # Берём топ X%
+    top_count = max(1, int(len(scored) * top_percent / 100))
+    return [point for _, point in scored[:top_count]]
     
     def get_statistics(self):
         stats = {}
@@ -149,7 +222,8 @@ class PlanningEngine:
     
     def build_plan_balanced(self, fact_polygons, target_ap, 
                             constant_threshold=95, variable_threshold=95, 
-                            city_tolerance_percent=0, type_tolerance_percent=0):
+                            city_tolerance_percent=0, type_tolerance_percent=0,
+                            bonus_type=6, bonus_proximity=5, bonus_client=4):
         """
         Формирует план визитов (АП) сбалансированно:
         - Константа → основа
@@ -259,13 +333,23 @@ class PlanningEngine:
                         retro_points.append(row_dict)
                         break
         
-        # 5. Выравнивание полигонов (по кругу)
+        # 5. Выравнивание полигонов (по кругу, с приоритетом по Score)
         cities_sorted = sorted(city_count.keys(), key=lambda c: city_count.get(c, 0))
         
         for city in cities_sorted:
             city_polygons = [p for p in polygon_ids if p in polygon_points and polygon_points[p]]
             if not city_polygons:
                 continue
+            
+            # Топ 20% близких точек для этого города
+            all_candidates = []
+            for point in variable_points + retro_points:
+                if point.get('Город') == city:
+                    all_candidates.append(point)
+            
+            city_top_points = self.calculate_top_proximity_points(
+                city, all_candidates, self.constant_df, top_percent=20
+            )
             
             current_counts = {p: polygon_count.get(p, 0) for p in city_polygons}
             source_index = 0
@@ -284,20 +368,63 @@ class PlanningEngine:
                     source_index += 1
                     continue
                 
+                # Считаем текущие пропорции один раз
+                total = len(final_ap)
+                type_counts = final_ap['RED PoS Group'].value_counts() if not final_ap.empty else pd.Series()
+                client_counts = final_ap['Сеть'].value_counts() if not final_ap.empty else pd.Series()
+                
+                type_ratios = self.type_ratios
+                client_ratios = self.client_ratios
+                
                 for poly_id in sorted_polygons:
                     if len(final_ap) >= target_ap:
                         break
                     if target_by_city.get(city, 0) > 0 and city_count.get(city, 0) >= target_by_city[city]:
                         break
                     
-                    for i, point_data in enumerate(source_data):
+                    # Собираем точки для этого полигона
+                    candidates = []
+                    for point_data in source_data:
                         if point_data.get('полигон_id') == poly_id:
+                            candidates.append(point_data)
+                    
+                    if not candidates:
+                        continue
+                    
+                    # Считаем Score для каждой точки
+                    scored_points = []
+                    for point in candidates:
+                        score = self.calculate_score_v2(
+                            point, final_ap, type_ratios, client_ratios,
+                            bonus_type, bonus_proximity, bonus_client
+                        )
+                        # Добавляем бонус за близость (если точка в топ 20%)
+                        if bonus_proximity > 0 and city_top_points:
+                            for tp in city_top_points:
+                                if (tp.get('Longitude') == point.get('Longitude') and
+                                    tp.get('Latitude') == point.get('Latitude')):
+                                    score += bonus_proximity
+                                    break
+                        scored_points.append((score, point))
+                    
+                    # Сортируем по убыванию Score
+                    scored_points.sort(key=lambda x: x[0], reverse=True)
+                    
+                    # Берём лучшую точку
+                    best_score, best_point = scored_points[0]
+                    
+                    # Удаляем из source_data
+                    for i, point_data in enumerate(source_data):
+                        if (point_data.get('Longitude') == best_point.get('Longitude') and
+                            point_data.get('Latitude') == best_point.get('Latitude')):
                             source_data.pop(i)
-                            point_data['Источник'] = 'Переменная' if source_name == 'variable' else 'Ретро'
-                            final_ap = pd.concat([final_ap, pd.DataFrame([point_data])], ignore_index=True)
-                            current_counts[poly_id] = current_counts.get(poly_id, 0) + 1
-                            city_count[city] = city_count.get(city, 0) + 1
                             break
+                    
+                    # Добавляем в финальный план
+                    best_point['Источник'] = 'Переменная' if source_name == 'variable' else 'Ретро'
+                    final_ap = pd.concat([final_ap, pd.DataFrame([best_point])], ignore_index=True)
+                    current_counts[poly_id] = current_counts.get(poly_id, 0) + 1
+                    city_count[city] = city_count.get(city, 0) + 1
                 
                 if len(final_ap) >= target_ap:
                     break
