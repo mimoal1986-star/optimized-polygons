@@ -7,15 +7,9 @@ class PlanningEngine:
     """
     Класс для формирования плана визитов (АП)
     на основе Константы, Переменной и Ретро АП
-    
-    Методы:
-        - load_files(): загрузка 3 Excel-файлов
-        - calculate_client_ratios(): расчет пропорций клиентов из Константы
-        - get_statistics(): базовая статистика по загруженным данным
     """
     
     def __init__(self):
-        """Инициализация"""
         self.client_ratios = {}
         self.type_ratios = {
             'HYPERMARKET': 2.18,
@@ -27,501 +21,119 @@ class PlanningEngine:
         self.retro_df = None
         
     def load_files(self, constant_file, variable_file, retro_file):
-        """
-        Загружает три файла и нормализует названия колонок
-        """
+        """Загружает три файла и нормализует названия колонок"""
         def normalize_columns(df):
-            """Приводит названия колонок к единому стандарту"""
-            # Словарь: {возможное_название: стандартное_название}
             mapping = {
-                'latitude': 'Latitude',
-                'lat': 'Latitude',
-                'широта': 'Latitude',
-                'гео/ш': 'Latitude',
-                'longitude': 'Longitude',
-                'lon': 'Longitude',
-                'долгота': 'Longitude',
-                'гео/д': 'Longitude',
-                'город': 'Город',
-                'city': 'Город',
-                'customer name': 'Customer Name',
-                'клиент': 'Customer Name',
-                'red pos group': 'RED PoS Group',
-                'тип': 'RED PoS Group',
-                'type': 'RED PoS Group',
-                'логин': 'логин',
-                'login': 'логин',
-                'auditor': 'логин',
-                'id сотрудника': 'логин',
+                'latitude': 'Latitude', 'lat': 'Latitude',
+                'широта': 'Latitude', 'гео/ш': 'Latitude',
+                'longitude': 'Longitude', 'lon': 'Longitude',
+                'долгота': 'Longitude', 'гео/д': 'Longitude',
+                'город': 'Город', 'city': 'Город',
+                'customer name': 'Customer Name', 'клиент': 'Customer Name',
+                'red pos group': 'RED PoS Group', 'тип': 'RED PoS Group',
+                'type': 'RED PoS Group', 'сеть': 'Сеть',
+                'логин': 'логин', 'login': 'логин',
+                'auditor': 'логин', 'id сотрудника': 'логин',
             }
-            
-            # Нормализуем названия колонок
             new_columns = {}
             for col in df.columns:
-                # Убираем пробелы по краям, приводим к нижнему регистру
                 col_clean = col.strip().lower()
-                # Ищем в маппинге
                 if col_clean in mapping:
                     new_columns[col] = mapping[col_clean]
                 else:
-                    # Оставляем как есть, но с первой заглавной буквой
                     new_columns[col] = col.strip().title()
-            
             return df.rename(columns=new_columns)
         
-        # Загружаем Константу
         if constant_file is not None:
             self.constant_df = pd.read_excel(constant_file)
             self.constant_df = normalize_columns(self.constant_df)
-            
-            # Преобразуем координаты
             if 'Latitude' in self.constant_df.columns:
                 self.constant_df['Latitude'] = self.constant_df['Latitude'].astype(str).str.replace(',', '.').astype(float)
             if 'Longitude' in self.constant_df.columns:
                 self.constant_df['Longitude'] = self.constant_df['Longitude'].astype(str).str.replace(',', '.').astype(float)
         
-        # Загружаем Переменную
         if variable_file is not None:
             self.variable_df = pd.read_excel(variable_file)
             self.variable_df = normalize_columns(self.variable_df)
-            
             if 'Latitude' in self.variable_df.columns:
                 self.variable_df['Latitude'] = self.variable_df['Latitude'].astype(str).str.replace(',', '.').astype(float)
             if 'Longitude' in self.variable_df.columns:
                 self.variable_df['Longitude'] = self.variable_df['Longitude'].astype(str).str.replace(',', '.').astype(float)
         
-        # Загружаем Ретро
         if retro_file is not None:
             self.retro_df = pd.read_excel(retro_file)
-            
-            lat_col = None
-            lon_col = None
-            login_col = None
-            type_col = None
-            address_col = None
-            city_col = None
-            
+            lat_col = lon_col = login_col = type_col = address_col = city_col = None
             for col in self.retro_df.columns:
                 col_lower = col.lower().strip()
-                if col_lower in ['широта', 'latitude', 'lat', 'гео/ш']:
-                    lat_col = col
-                elif col_lower in ['долгота', 'longitude', 'lon', 'гео/д']:
-                    lon_col = col
-                elif col_lower in ['логин', 'login', 'auditor', 'id сотрудника', 'тп']:
-                    login_col = col
-                elif col_lower in ['тип', 'type', 'red pos group']:
-                    type_col = col
-                elif col_lower in ['адрес', 'address', 'street name']:
-                    address_col = col
-                elif col_lower in ['город', 'city']:
-                    city_col = col
+                if col_lower in ['широта', 'latitude', 'lat', 'гео/ш']: lat_col = col
+                elif col_lower in ['долгота', 'longitude', 'lon', 'гео/д']: lon_col = col
+                elif col_lower in ['логин', 'login', 'auditor', 'id сотрудника', 'тп']: login_col = col
+                elif col_lower in ['тип', 'type', 'red pos group']: type_col = col
+                elif col_lower in ['адрес', 'address', 'street name']: address_col = col
+                elif col_lower in ['город', 'city']: city_col = col
             
-            if lat_col:
-                self.retro_df = self.retro_df.rename(columns={lat_col: 'Latitude'})
-            if lon_col:
-                self.retro_df = self.retro_df.rename(columns={lon_col: 'Longitude'})
-            if login_col:
-                self.retro_df = self.retro_df.rename(columns={login_col: 'логин'})
-            if type_col:
-                self.retro_df = self.retro_df.rename(columns={type_col: 'RED PoS Group'})
-            if address_col:
-                self.retro_df = self.retro_df.rename(columns={address_col: 'Street Name'})
-            if city_col:
-                self.retro_df = self.retro_df.rename(columns={city_col: 'Город'})
+            if lat_col: self.retro_df = self.retro_df.rename(columns={lat_col: 'Latitude'})
+            if lon_col: self.retro_df = self.retro_df.rename(columns={lon_col: 'Longitude'})
+            if login_col: self.retro_df = self.retro_df.rename(columns={login_col: 'логин'})
+            if type_col: self.retro_df = self.retro_df.rename(columns={type_col: 'RED PoS Group'})
+            if address_col: self.retro_df = self.retro_df.rename(columns={address_col: 'Street Name'})
+            if city_col: self.retro_df = self.retro_df.rename(columns={city_col: 'Город'})
             
-            # Преобразуем координаты
-            self.retro_df['Latitude'] = self.retro_df['Latitude'].astype(str).str.replace(',', '.').astype(float)
-            self.retro_df['Longitude'] = self.retro_df['Longitude'].astype(str).str.replace(',', '.').astype(float)
+            self.retro_df['Latitude'] = self.retro_df['Latitude'].astype(str).str_replace(',', '.').astype(float)
+            self.retro_df['Longitude'] = self.retro_df['Longitude'].astype(str).str_replace(',', '.').astype(float)
         
         return self.constant_df is not None
     
     def calculate_client_ratios(self):
-        """
-        Вычисляет пропорции по клиентам из Константы
-        
-        Returns:
-            dict: {client_name: ratio_in_percent}
-            
-        Пример:
-            {'ООО ХОЛЛИФУД': 45.2, 'ООО МАГНИТ': 30.1, ...}
-        """
-        if self.constant_df is None:
-            return {}
-        
+        if self.constant_df is None: return {}
         total_rows = len(self.constant_df)
-        if total_rows == 0:
-            return {}
-        
+        if total_rows == 0: return {}
         client_counts = self.constant_df['Сеть'].value_counts()
-        
         self.client_ratios = {}
         for client, count in client_counts.items():
             self.client_ratios[client] = (count / total_rows) * 100
-        
         return self.client_ratios
     
+    def calculate_city_ratios(self):
+        if self.constant_df is None: return {}
+        total_rows = len(self.constant_df)
+        if total_rows == 0: return {}
+        city_counts = self.constant_df['Город'].value_counts()
+        city_ratios = {}
+        for city, count in city_counts.items():
+            city_ratios[city] = (count / total_rows) * 100
+        return city_ratios
+    
     def get_statistics(self):
-        """
-        Возвращает базовую статистику по загруженным данным
-        
-        Returns:
-            dict: статистика по каждому источнику
-            
-        Пример:
-            {
-                'constant_count': 3500,
-                'constant_clients': 45,
-                'constant_cities': 16,
-                'variable_count': 2000,
-                'variable_cities': 15,
-                'retro_count': 500,
-                'retro_auditors': 30
-            }
-        """
         stats = {}
-        
         if self.constant_df is not None:
             stats['constant_count'] = len(self.constant_df)
             stats['constant_clients'] = self.constant_df['Сеть'].nunique()
             stats['constant_cities'] = self.constant_df['Город'].nunique()
-        
         if self.variable_df is not None:
             stats['variable_count'] = len(self.variable_df)
             stats['variable_cities'] = self.variable_df['Город'].nunique()
-        
         if self.retro_df is not None:
             stats['retro_count'] = len(self.retro_df)
             stats['retro_auditors'] = self.retro_df['логин'].nunique()
-        
         return stats
-
     
     def check_point_in_polygons(self, lon, lat, polygons):
-        """
-        Проверяет, попадает ли точка хотя бы в один полигон
-        
-        Args:
-            lon: долгота точки
-            lat: широта точки
-            polygons: список полигонов (shapely.geometry.Polygon)
-        
-        Returns:
-            bool: True если точка попала хотя бы в один полигон
-        """
-        if not polygons:
-            return False
-        
+        if not polygons: return False
         point = Point(lon, lat)
-        
         for polygon in polygons:
-            if polygon.contains(point):
-                return True
-        
+            if polygon.contains(point): return True
         return False
-        
-    # def build_plan(self, retro_polygons, target_ap, constant_threshold=95, variable_threshold=95, type_tolerance=0):
-    #     """
-    #     Формирует план визитов (АП) по трёхэтапной логике:
-    #     1. Константа → основа
-    #     2. Переменная → добираем до 100% (без дубликатов)
-    #     3. Ретро → добираем до 100% (без дубликатов)
-    #     Статистика считается только по факту попадания в final_ap
-    #     """
-    #     if self.constant_df is None:
-    #         return {'status': 'error', 'message': 'Загрузите файл Константы!'}
-        
-    #     if not retro_polygons:
-    #         return {'status': 'error', 'message': 'Сначала создайте ретро-полигоны!'}
-
-    #     # ==============================================
-    #     # ПРЕОБРАЗУЕМ retro_polygons В SHAPELY-ПОЛИГОНЫ
-    #     # ==============================================
-    #     polygon_geoms = []
-    #     for poly_data in retro_polygons:
-    #         coords = poly_data['coordinates']
-    #         if coords and len(coords) >= 3:
-    #             if coords[0] != coords[-1]:
-    #                 coords = coords + [coords[0]]
-    #             polygon_geoms.append(Polygon(coords))
-        
-    #     if not polygon_geoms:
-    #         return {'status': 'error', 'message': 'Нет валидных полигонов!'}
-            
-    #     # ==============================================
-    #     # ШАГ 1: Отбор Константы → формируем основу АП
-    #     # ==============================================
-    #     constant_selected = []
-    #     constant_total = len(self.constant_df)
-        
-    #     for _, row in self.constant_df.iterrows():
-    #         point = Point(row['Longitude'], row['Latitude'])
-    #         assigned_auditor = ''
-            
-    #         for i, poly_geom in enumerate(polygon_geoms):
-    #             if poly_geom.contains(point):
-    #                 assigned_auditor = retro_polygons[i]['auditor_id']
-    #                 break
-            
-    #         if assigned_auditor:
-    #             row['Аудитор'] = assigned_auditor
-    #             constant_selected.append(row)
-        
-    #     constant_selected_df = pd.DataFrame(constant_selected)
-        
-    #     # Формируем финальную АП из Константы
-    #     final_ap = constant_selected_df.copy()
-    #     final_ap['Источник'] = 'Константа'
-        
-    #     # Проверяем, достигнут ли target_ap
-    #     if len(final_ap) >= target_ap:
-    #         # Статистика считается в конце
-    #         pass  # переходим к статистике
-        
-    #     # ==============================================
-    #     # ШАГ 2: Отбор Переменной → добираем до target_ap
-    #     # ==============================================
-    #     variable_total = len(self.variable_df) if self.variable_df is not None else 0
-        
-    #     if self.variable_df is not None and variable_total > 0:
-    #         # Отбираем все точки Переменной, попавшие в полигоны
-    #         variable_all = []
-    #         for _, row in self.variable_df.iterrows():
-    #             point = Point(row['Longitude'], row['Latitude'])
-    #             assigned_auditor = ''
-                
-    #             for i, poly_geom in enumerate(polygon_geoms):
-    #                 if poly_geom.contains(point):
-    #                     assigned_auditor = retro_polygons[i]['auditor_id']
-    #                     break
-                
-    #             if assigned_auditor:
-    #                 row['Аудитор'] = assigned_auditor
-    #                 variable_all.append(row)
-            
-    #         variable_all_df = pd.DataFrame(variable_all)
-            
-    #         # Удаляем дубликаты с текущей final_ap (по координатам)
-    #         if not variable_all_df.empty and not final_ap.empty:
-    #             # Создаём множество координат из final_ap
-    #             existing_coords = set(zip(final_ap['Longitude'], final_ap['Latitude']))
-    #             # Оставляем только те точки, которых нет в final_ap
-    #             variable_all_df = variable_all_df[
-    #                 ~variable_all_df.apply(
-    #                     lambda row: (row['Longitude'], row['Latitude']) in existing_coords,
-    #                     axis=1
-    #                 )
-    #             ]
-            
-    #         # Берём только сколько не хватает до target_ap
-    #         current_count = len(final_ap)
-    #         needed = max(0, target_ap - current_count)
-            
-    #         if needed > 0 and not variable_all_df.empty:
-    #             variable_to_add = variable_all_df.head(needed).copy()
-    #             variable_to_add['Источник'] = 'Переменная'
-    #             final_ap = pd.concat([final_ap, variable_to_add], ignore_index=True)
-        
-    #     # ==============================================
-    #     # ШАГ 3: Отбор Ретро → добираем до target_ap
-    #     # ==============================================
-    #     retro_total = len(self.retro_df) if self.retro_df is not None else 0
-        
-    #     if self.retro_df is not None and retro_total > 0:
-    #         # Отбираем все точки Ретро, попавшие в полигоны
-    #         retro_all = []
-    #         for _, row in self.retro_df.iterrows():
-    #             point = Point(row['Longitude'], row['Latitude'])
-    #             assigned_auditor = ''
-                
-    #             for i, poly_geom in enumerate(polygon_geoms):
-    #                 if poly_geom.contains(point):
-    #                     assigned_auditor = retro_polygons[i]['auditor_id']
-    #                     break
-                
-    #             if assigned_auditor:
-    #                 row['Аудитор'] = assigned_auditor
-    #                 retro_all.append(row)
-            
-    #         retro_all_df = pd.DataFrame(retro_all)
-            
-    #         # Удаляем дубликаты с текущей final_ap (по координатам)
-    #         if not retro_all_df.empty and not final_ap.empty:
-    #             existing_coords = set(zip(final_ap['Longitude'], final_ap['Latitude']))
-    #             retro_all_df = retro_all_df[
-    #                 ~retro_all_df.apply(
-    #                     lambda row: (row['Longitude'], row['Latitude']) in existing_coords,
-    #                     axis=1
-    #                 )
-    #             ]
-            
-    #         # Берём только сколько не хватает до target_ap
-    #         current_count = len(final_ap)
-    #         needed = max(0, target_ap - current_count)
-            
-    #         if needed > 0 and not retro_all_df.empty:
-    #             retro_to_add = retro_all_df.head(needed).copy()
-    #             retro_to_add['Источник'] = 'Ретро'
-    #             final_ap = pd.concat([final_ap, retro_to_add], ignore_index=True)
-        
-    #     # ==============================================
-    #     # ШАГ 4: Финальная статистика (только по факту)
-    #     # ==============================================
-    #     final_count = len(final_ap)
-    #     plan_completion = (final_count / target_ap * 100) if target_ap > 0 else 0
-        
-    #     # Утилизация считается ТОЛЬКО по факту попадания в final_ap
-    #     # Считаем, сколько точек из каждого источника реально попало в final_ap
-    #     constant_fact = len(final_ap[final_ap['Источник'] == 'Константа'])
-    #     variable_fact = len(final_ap[final_ap['Источник'] == 'Переменная'])
-    #     retro_fact = len(final_ap[final_ap['Источник'] == 'Ретро'])
-        
-    #     constant_utilization = (constant_fact / constant_total * 100) if constant_total > 0 else 0
-    #     variable_utilization = (variable_fact / variable_total * 100) if variable_total > 0 else 0
-    #     retro_utilization = (retro_fact / retro_total * 100) if retro_total > 0 else 0
-        
-    #     # ==============================================
-    #     # ШАГ 5: Проверка пропорций по типам (мягкая)
-    #     # ==============================================
-    #     type_warnings = []
-    #     if len(final_ap) > 0:
-    #         type_counts = final_ap['RED PoS Group'].value_counts()
-    #         total = len(final_ap)
-            
-    #         for type_name, expected_ratio in self.type_ratios.items():
-    #             actual_count = type_counts.get(type_name, 0)
-    #             actual_ratio = (actual_count / total * 100) if total > 0 else 0
-    #             deviation = abs(actual_ratio - expected_ratio)
-                
-    #             if deviation > type_tolerance:
-    #                 type_warnings.append(
-    #                     f"{type_name}: ожидалось {expected_ratio:.2f}%, "
-    #                     f"получено {actual_ratio:.2f}% (отклонение {deviation:.2f}%)"
-    #                 )
-        
-    #     # ==============================================
-    #     # ШАГ 6: Мягкие проверки (предупреждения)
-    #     # ==============================================
-    #     warnings = []
-        
-    #     if constant_utilization < constant_threshold:
-    #         warnings.append(f'⚠️ Константа: {constant_utilization:.1f}% (< {constant_threshold}%)')
-        
-    #     if variable_utilization < variable_threshold:
-    #         warnings.append(f'⚠️ Переменная: {variable_utilization:.1f}% (< {variable_threshold}%)')
-        
-    #     if plan_completion < 95:
-    #         warnings.append(f'⚠️ План выполнен только на {plan_completion:.1f}% (цель {target_ap})')
-        
-    #     warnings.extend(type_warnings)
-        
-    #     # ==============================================
-    #     # ШАГ 7: Утилизация (для отчёта)
-    #     # ==============================================
-    #     utilization = {
-    #         'constant': {
-    #             'total': constant_total,
-    #             'selected': constant_fact,
-    #             'utilization': constant_utilization
-    #         },
-    #         'variable': {
-    #             'total': variable_total,
-    #             'selected': variable_fact,
-    #             'utilization': variable_utilization
-    #         },
-    #         'retro': {
-    #             'total': retro_total,
-    #             'selected': retro_fact,
-    #             'utilization': retro_utilization
-    #         }
-    #     }
-        
-    #     # ==============================================
-    #     # ШАГ 8: Результат
-    #     # ==============================================
-    #     status = 'success' if not warnings else 'warning'
-    #     message = f'✅ План сформирован: {final_count} из {target_ap} ({plan_completion:.1f}%)'
-    #     if warnings:
-    #         message = f'⚠️ План сформирован с предупреждениями: {final_count} из {target_ap} ({plan_completion:.1f}%)'
-        
-    #     return {
-    #         'status': status,
-    #         'message': message,
-    #         'warnings': warnings,
-    #         'final_ap': final_ap,
-    #         'constant_selected': constant_selected_df,
-    #         'variable_selected': variable_all_df if 'variable_all_df' in locals() else pd.DataFrame(),
-    #         'retro_selected': retro_all_df if 'retro_all_df' in locals() else pd.DataFrame(),
-    #         'statistics': {
-    #             'target_ap': target_ap,
-    #             'final_count': final_count,
-    #             'plan_completion': plan_completion,
-    #             'constant_total': constant_total,
-    #             'constant_selected': constant_fact,
-    #             'constant_utilization': constant_utilization,
-    #             'variable_total': variable_total,
-    #             'variable_selected': variable_fact,
-    #             'variable_utilization': variable_utilization,
-    #             'retro_total': retro_total,
-    #             'retro_selected': retro_fact,
-    #             'retro_utilization': retro_utilization
-    #         },
-    #         'utilization': utilization
-    #     }
-
-
-    # def _select_retro_points(self, retro_polygons, needed_count, active_clients):
-    #     """
-    #     Отбирает точки из Ретро, если не хватает для достижения целевого объема
-        
-    #     Args:
-    #         retro_polygons: список полигонов
-    #         needed_count: сколько точек нужно добавить
-    #         active_clients: список активных клиентов (из Константы)
-        
-    #     Returns:
-    #         DataFrame: отобранные точки из Ретро
-    #     """
-    #     if self.retro_df is None or len(self.retro_df) == 0:
-    #         return pd.DataFrame()
-        
-    #     selected = []
-        
-    #     for _, row in self.retro_df.iterrows():
-    #         # if row['логин'] not in active_clients:
-    #         #     continue
-            
-    #         if self.check_point_in_polygons(row['долгота'], row['широта'], retro_polygons):
-    #             selected.append(row)
-            
-    #         if len(selected) >= needed_count:
-    #             break
-        
-    #     return pd.DataFrame(selected)
-
-    def build_plan_with_fact_polygons(self, fact_polygons, target_ap, constant_threshold=95, variable_threshold=95, type_tolerance=0):
+    
+    def build_plan_balanced(self, fact_polygons, target_ap, 
+                            constant_threshold=95, variable_threshold=95, 
+                            city_tolerance_percent=0, type_tolerance_percent=0):
         """
-        Формирует план визитов (АП) на основе ФАКТ-ПОЛИГОНОВ.
-        
-        Логика:
-        1. Константа → проверяем попадание в факт-полигоны
-        2. Переменная → добираем до 100% (без дубликатов)
-        3. Ретро → добираем до 100% (без дубликатов)
-        
-        Args:
-            fact_polygons: dict из st.session_state['fact_polygons']
-            target_ap: целевой объем АП
-            constant_threshold: порог константы (%)
-            variable_threshold: порог переменной (%)
-            type_tolerance: допуск по типам магазинов (%)
-        
-        Returns:
-            dict: {
-                'status': 'success' | 'warning' | 'error',
-                'message': str,
-                'final_ap': DataFrame,
-                'statistics': dict,
-                'utilization': dict
-            }
+        Формирует план визитов (АП) сбалансированно:
+        - Константа → основа
+        - Переменная → выравнивание полигонов (по кругу, по 1 точке)
+        - Ретро → если не хватило Переменной
+        - Контроль плана после каждого города
         """
         if self.constant_df is None:
             return {'status': 'error', 'message': 'Загрузите файл Константы!'}
@@ -529,11 +141,12 @@ class PlanningEngine:
         if not fact_polygons:
             return {'status': 'error', 'message': 'Сначала загрузите факт-полигоны!'}
         
-        # ==============================================
-        # ПРЕОБРАЗУЕМ факт-полигоны в SHAPELY-ПОЛИГОНЫ
-        # ==============================================
+        # 1. Преобразуем факт-полигоны в shapely-полигоны
         polygon_geoms = []
         polygon_auditors = []
+        polygon_cities = []
+        polygon_ids = []
+        
         for poly_id, poly_data in fact_polygons.items():
             coords = poly_data['coordinates']
             if coords and len(coords) >= 3:
@@ -541,201 +154,222 @@ class PlanningEngine:
                     coords = coords + [coords[0]]
                 polygon_geoms.append(Polygon(coords))
                 polygon_auditors.append(poly_data['auditor_id'])
+                polygon_cities.append(poly_data.get('city', 'Неизвестно'))
+                polygon_ids.append(poly_id)
         
         if not polygon_geoms:
             return {'status': 'error', 'message': 'Нет валидных полигонов!'}
         
-        # ==============================================
-        # ШАГ 1: Отбор Константы → формируем основу АП
-        # ==============================================
+        # 2. Отбор Константы
         constant_selected = []
         constant_total = len(self.constant_df)
+        error_points = []
+        polygon_points = {poly_id: [] for poly_id in polygon_ids}
+        polygon_count = {poly_id: 0 for poly_id in polygon_ids}
+        city_count = {}
         
         for _, row in self.constant_df.iterrows():
             point = Point(row['Longitude'], row['Latitude'])
+            assigned_polygon = None
             assigned_auditor = ''
+            assigned_city = ''
             
             for i, poly_geom in enumerate(polygon_geoms):
                 if poly_geom.contains(point):
+                    assigned_polygon = polygon_ids[i]
                     assigned_auditor = polygon_auditors[i]
+                    assigned_city = polygon_cities[i]
                     break
             
-            if assigned_auditor:
+            if assigned_polygon:
                 row_dict = row.to_dict()
                 row_dict['Аудитор'] = assigned_auditor
+                row_dict['полигон_id'] = assigned_polygon
+                row_dict['Источник'] = 'Константа'
                 constant_selected.append(row_dict)
+                polygon_points[assigned_polygon].append(row_dict)
+                polygon_count[assigned_polygon] += 1
+                if assigned_city not in city_count:
+                    city_count[assigned_city] = 0
+                city_count[assigned_city] += 1
+            else:
+                error_points.append(row.to_dict())
         
         constant_selected_df = pd.DataFrame(constant_selected)
-        
-        # Формируем финальную АП из Константы
         final_ap = constant_selected_df.copy()
-        final_ap['Источник'] = 'Константа'
         
-        # Проверяем, достигнут ли target_ap
         if len(final_ap) >= target_ap:
-            pass  # переходим к статистике
+            final_ap = final_ap.head(target_ap)
+            return self._build_result(final_ap, constant_selected_df, pd.DataFrame(), pd.DataFrame(),
+                                       error_points, target_ap, constant_total,
+                                       len(self.variable_df) or 0, len(self.retro_df) or 0,
+                                       constant_threshold, variable_threshold,
+                                       city_tolerance_percent, type_tolerance_percent)
         
-        # ==============================================
-        # ШАГ 2: Отбор Переменной → добираем до target_ap
-        # ==============================================
-        variable_total = len(self.variable_df) if self.variable_df is not None else 0
+        # 3. Расчёт целевых показателей
+        city_ratios = self.calculate_city_ratios()
+        target_by_city = {}
+        for city, ratio in city_ratios.items():
+            target_by_city[city] = int(target_ap * ratio / 100)
         
-        if self.variable_df is not None and variable_total > 0:
-            # Отбираем все точки Переменной, попавшие в полигоны
-            variable_all = []
+        # 4. Подготовка Переменной и Ретро
+        variable_points = []
+        if self.variable_df is not None and not self.variable_df.empty:
             for _, row in self.variable_df.iterrows():
                 point = Point(row['Longitude'], row['Latitude'])
-                assigned_auditor = ''
-                
                 for i, poly_geom in enumerate(polygon_geoms):
                     if poly_geom.contains(point):
-                        assigned_auditor = polygon_auditors[i]
+                        row_dict = row.to_dict()
+                        row_dict['полигон_id'] = polygon_ids[i]
+                        row_dict['Аудитор'] = polygon_auditors[i]
+                        variable_points.append(row_dict)
                         break
-                
-                if assigned_auditor:
-                    row_dict = row.to_dict()
-                    row_dict['Аудитор'] = assigned_auditor
-                    variable_all.append(row_dict)
-            
-            variable_all_df = pd.DataFrame(variable_all)
-            
-            # Удаляем дубликаты с текущей final_ap
-            if not variable_all_df.empty and not final_ap.empty:
-                existing_coords = set(zip(final_ap['Longitude'], final_ap['Latitude']))
-                variable_all_df = variable_all_df[
-                    ~variable_all_df.apply(
-                        lambda row: (row['Longitude'], row['Latitude']) in existing_coords,
-                        axis=1
-                    )
-                ]
-            
-            # Берём только сколько не хватает до target_ap
-            current_count = len(final_ap)
-            needed = max(0, target_ap - current_count)
-            
-            if needed > 0 and not variable_all_df.empty:
-                variable_to_add = variable_all_df.head(needed).copy()
-                variable_to_add['Источник'] = 'Переменная'
-                final_ap = pd.concat([final_ap, variable_to_add], ignore_index=True)
         
-        # ==============================================
-        # ШАГ 3: Отбор Ретро → добираем до target_ap
-        # ==============================================
-        retro_total = len(self.retro_df) if self.retro_df is not None else 0
-        
-        if self.retro_df is not None and retro_total > 0:
-            # Отбираем все точки Ретро, попавшие в полигоны
-            retro_all = []
+        retro_points = []
+        if self.retro_df is not None and not self.retro_df.empty:
             for _, row in self.retro_df.iterrows():
                 point = Point(row['Longitude'], row['Latitude'])
-                assigned_auditor = ''
-                
                 for i, poly_geom in enumerate(polygon_geoms):
                     if poly_geom.contains(point):
-                        assigned_auditor = polygon_auditors[i]
+                        row_dict = row.to_dict()
+                        row_dict['полигон_id'] = polygon_ids[i]
+                        row_dict['Аудитор'] = polygon_auditors[i]
+                        retro_points.append(row_dict)
                         break
-                
-                if assigned_auditor:
-                    row_dict = row.to_dict()
-                    row_dict['Аудитор'] = assigned_auditor
-                    retro_all.append(row_dict)
-            
-            retro_all_df = pd.DataFrame(retro_all)
-            
-            # Удаляем дубликаты с текущей final_ap
-            if not retro_all_df.empty and not final_ap.empty:
-                existing_coords = set(zip(final_ap['Longitude'], final_ap['Latitude']))
-                retro_all_df = retro_all_df[
-                    ~retro_all_df.apply(
-                        lambda row: (row['Longitude'], row['Latitude']) in existing_coords,
-                        axis=1
-                    )
-                ]
-            
-            # Берём только сколько не хватает до target_ap
-            current_count = len(final_ap)
-            needed = max(0, target_ap - current_count)
-            
-            if needed > 0 and not retro_all_df.empty:
-                retro_to_add = retro_all_df.head(needed).copy()
-                retro_to_add['Источник'] = 'Ретро'
-                final_ap = pd.concat([final_ap, retro_to_add], ignore_index=True)
         
-        # ==============================================
-        # ШАГ 4: Финальная статистика (только по факту)
-        # ==============================================
+        # 5. Выравнивание полигонов (по кругу)
+        cities_sorted = sorted(city_count.keys(), key=lambda c: city_count.get(c, 0))
+        
+        for city in cities_sorted:
+            city_polygons = [p for p in polygon_ids if p in polygon_points and polygon_points[p]]
+            if not city_polygons:
+                continue
+            
+            current_counts = {p: polygon_count.get(p, 0) for p in city_polygons}
+            source_index = 0
+            sources = [('variable', variable_points), ('retro', retro_points)]
+            
+            while source_index < len(sources):
+                source_name, source_data = sources[source_index]
+                if not source_data:
+                    source_index += 1
+                    continue
+                
+                sorted_polygons = sorted(city_polygons, key=lambda p: current_counts.get(p, 0))
+                min_count = min(current_counts.values())
+                max_count = max(current_counts.values())
+                if max_count - min_count <= 1:
+                    source_index += 1
+                    continue
+                
+                for poly_id in sorted_polygons:
+                    if len(final_ap) >= target_ap:
+                        break
+                    if target_by_city.get(city, 0) > 0 and city_count.get(city, 0) >= target_by_city[city]:
+                        break
+                    
+                    for i, point_data in enumerate(source_data):
+                        if point_data.get('полигон_id') == poly_id:
+                            source_data.pop(i)
+                            point_data['Источник'] = 'Переменная' if source_name == 'variable' else 'Ретро'
+                            final_ap = pd.concat([final_ap, pd.DataFrame([point_data])], ignore_index=True)
+                            current_counts[poly_id] = current_counts.get(poly_id, 0) + 1
+                            city_count[city] = city_count.get(city, 0) + 1
+                            break
+                
+                if len(final_ap) >= target_ap:
+                    break
+            if len(final_ap) >= target_ap:
+                break
+        
+        # 6. Финальная статистика
+        return self._build_result(final_ap, constant_selected_df, 
+                                   pd.DataFrame(variable_points), 
+                                   pd.DataFrame(retro_points),
+                                   error_points, target_ap, constant_total,
+                                   len(self.variable_df) or 0, len(self.retro_df) or 0,
+                                   constant_threshold, variable_threshold,
+                                   city_tolerance_percent, type_tolerance_percent,
+                                   city_ratios)
+    
+    def _build_result(self, final_ap, constant_selected, variable_selected, retro_selected,
+                      error_points, target_ap, constant_total, variable_total, retro_total,
+                      constant_threshold, variable_threshold,
+                      city_tolerance_percent=0, type_tolerance_percent=0,
+                      city_ratios=None):
+        """Формирует результат (статистика, утилизация, предупреждения)"""
         final_count = len(final_ap)
         plan_completion = (final_count / target_ap * 100) if target_ap > 0 else 0
         
-        # Утилизация считается ТОЛЬКО по факту попадания в final_ap
-        # Считаем, сколько точек из каждого источника реально попало в final_ap
-        constant_fact = len(final_ap[final_ap['Источник'] == 'Константа'])
-        variable_fact = len(final_ap[final_ap['Источник'] == 'Переменная'])
-        retro_fact = len(final_ap[final_ap['Источник'] == 'Ретро'])
+        constant_fact = len(final_ap[final_ap['Источник'] == 'Константа']) if not final_ap.empty else 0
+        variable_fact = len(final_ap[final_ap['Источник'] == 'Переменная']) if not final_ap.empty else 0
+        retro_fact = len(final_ap[final_ap['Источник'] == 'Ретро']) if not final_ap.empty else 0
         
         constant_utilization = (constant_fact / constant_total * 100) if constant_total > 0 else 0
         variable_utilization = (variable_fact / variable_total * 100) if variable_total > 0 else 0
         retro_utilization = (retro_fact / retro_total * 100) if retro_total > 0 else 0
         
-        # ==============================================
-        # ШАГ 5: Проверка пропорций по типам (мягкая)
-        # ==============================================
-        type_warnings = []
-        if len(final_ap) > 0:
-            type_counts = final_ap['RED PoS Group'].value_counts()
+        # Проверка пропорций по городам
+        city_warnings = []
+        if city_ratios and not final_ap.empty:
+            actual_city_counts = final_ap['Город'].value_counts()
             total = len(final_ap)
             
+            # Собираем все уникальные города из final_ap И city_ratios
+            all_cities = set(actual_city_counts.index) | set(city_ratios.keys())
+            
+            for city in all_cities:
+                actual_count = actual_city_counts.get(city, 0)
+                actual_ratio = (actual_count / total * 100) if total > 0 else 0
+                expected_ratio = city_ratios.get(city, 0)
+                
+                if expected_ratio > 0:
+                    deviation_percent = abs(actual_ratio - expected_ratio) / expected_ratio * 100
+                else:
+                    # Если города не было в Константе, но он появился в плане
+                    deviation_percent = 100 if actual_count > 0 else 0
+                
+                if deviation_percent > city_tolerance_percent:
+                    city_warnings.append(
+                        f"Город {city}: ожидалось {expected_ratio:.2f}%, "
+                        f"получено {actual_ratio:.2f}% (отклонение {deviation_percent:.2f}%)"
+                    )
+        
+        # Проверка пропорций по типам
+        type_warnings = []
+        if not final_ap.empty:
+            type_counts = final_ap['RED PoS Group'].value_counts()
+            total = len(final_ap)
             for type_name, expected_ratio in self.type_ratios.items():
                 actual_count = type_counts.get(type_name, 0)
                 actual_ratio = (actual_count / total * 100) if total > 0 else 0
-                deviation = abs(actual_ratio - expected_ratio)
-                
-                if deviation > type_tolerance:
+                if expected_ratio > 0:
+                    deviation_percent = abs(actual_ratio - expected_ratio) / expected_ratio * 100
+                else:
+                    deviation_percent = 0
+                if deviation_percent > type_tolerance_percent:
                     type_warnings.append(
                         f"{type_name}: ожидалось {expected_ratio:.2f}%, "
-                        f"получено {actual_ratio:.2f}% (отклонение {deviation:.2f}%)"
+                        f"получено {actual_ratio:.2f}% (отклонение {deviation_percent:.2f}%)"
                     )
         
-        # ==============================================
-        # ШАГ 6: Мягкие проверки (предупреждения)
-        # ==============================================
+        # Предупреждения
         warnings = []
-        
         if constant_utilization < constant_threshold:
             warnings.append(f'⚠️ Константа: {constant_utilization:.1f}% (< {constant_threshold}%)')
-        
         if variable_utilization < variable_threshold:
             warnings.append(f'⚠️ Переменная: {variable_utilization:.1f}% (< {variable_threshold}%)')
-        
         if plan_completion < 95:
             warnings.append(f'⚠️ План выполнен только на {plan_completion:.1f}% (цель {target_ap})')
+        if city_warnings: warnings.extend(city_warnings)
+        if type_warnings: warnings.extend(type_warnings)
         
-        warnings.extend(type_warnings)
-        
-        # ==============================================
-        # ШАГ 7: Утилизация (для отчёта)
-        # ==============================================
         utilization = {
-            'constant': {
-                'total': constant_total,
-                'selected': constant_fact,
-                'utilization': constant_utilization
-            },
-            'variable': {
-                'total': variable_total,
-                'selected': variable_fact,
-                'utilization': variable_utilization
-            },
-            'retro': {
-                'total': retro_total,
-                'selected': retro_fact,
-                'utilization': retro_utilization
-            }
+            'constant': {'total': constant_total, 'selected': constant_fact, 'utilization': constant_utilization},
+            'variable': {'total': variable_total, 'selected': variable_fact, 'utilization': variable_utilization},
+            'retro': {'total': retro_total, 'selected': retro_fact, 'utilization': retro_utilization}
         }
         
-        # ==============================================
-        # ШАГ 8: Результат
-        # ==============================================
         status = 'success' if not warnings else 'warning'
         message = f'✅ План сформирован: {final_count} из {target_ap} ({plan_completion:.1f}%)'
         if warnings:
@@ -746,9 +380,10 @@ class PlanningEngine:
             'message': message,
             'warnings': warnings,
             'final_ap': final_ap,
-            'constant_selected': constant_selected_df,
-            'variable_selected': variable_all_df if 'variable_all_df' in locals() else pd.DataFrame(),
-            'retro_selected': retro_all_df if 'retro_all_df' in locals() else pd.DataFrame(),
+            'constant_selected': constant_selected,
+            'variable_selected': variable_selected,
+            'retro_selected': retro_selected,
+            'error_points': error_points,
             'statistics': {
                 'target_ap': target_ap,
                 'final_count': final_count,
