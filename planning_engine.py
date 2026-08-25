@@ -257,19 +257,38 @@ class PlanningEngine:
                 polygon_ids.append(poly_id)
         
         # ========== СОЗДАЁМ R-TREE ПО ГОРОДАМ ==========
-        # Группируем полигоны по городам
+        # ========== ОПРЕДЕЛЯЕМ ГОРОДА ПО КОНСТАНТЕ ==========
+        if self.constant_df is not None and not self.constant_df.empty:
+            for i, poly_geom in enumerate(polygon_geoms):
+                # Если город уже определён и не "Неизвестно" — пропускаем
+                if polygon_cities[i] != 'Неизвестно':
+                    continue
+                
+                # Проверяем точки Константы
+                city_found = False
+                for _, row in self.constant_df.iterrows():
+                    point = Point(row['Longitude'], row['Latitude'])
+                    if poly_geom.contains(point):
+                        polygon_cities[i] = row['Город']
+                        city_found = True
+                        break
+                
+                if not city_found:
+                    polygon_cities[i] = 'Неизвестно'
+        # =====================================================
+        
+        # ========== СОЗДАЁМ R-TREE ПО ГОРОДАМ ==========
+        # Группируем полигоны по городам (теперь с правильными городами)
         city_groups = {}
         for i, city in enumerate(polygon_cities):
             if city not in city_groups:
                 city_groups[city] = []
             city_groups[city].append(i)
         
-        # Словарь для R-Tree: ключ = город, значение = данные
         self._rtrees = {}
         self._use_rtree = False
         
         if len(polygon_geoms) > 5:
-            # 1. Создаём R-Tree для каждого города (если в городе >= 2 полигона)
             for city, indices in city_groups.items():
                 if len(indices) < 2:
                     continue
@@ -286,7 +305,7 @@ class PlanningEngine:
                 }
                 self._use_rtree = True
             
-            # 2. Создаём ОБЩИЙ R-Tree для всех полигонов (fallback)
+            # Fallback — на случай, если какой-то город не определился
             self._rtrees['default'] = {
                 'tree': STRtree(polygon_geoms),
                 'geoms': polygon_geoms,
