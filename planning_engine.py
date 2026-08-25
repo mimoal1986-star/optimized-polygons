@@ -1,12 +1,21 @@
 import pandas as pd
 import streamlit as st
 from shapely.geometry import Point, Polygon
-from typing import Dict, Tuple, Optional
+from shapely.prepared import prep
+from shapely.strtree import STRtree
+from typing import Dict, Tuple, Optional, Set
+import numpy as np
+from functools import lru_cache
 
 class PlanningEngine:
     """
     Класс для формирования плана визитов (АП)
-    на основе Константы, Переменной и Ретро АП
+    ОПТИМИЗИРОВАННАЯ ВЕРСИЯ 2.0
+    - Векторизация операций
+    - R-Tree индекс для быстрой проверки точек в полигонах
+    - Кеширование результатов
+    - Пакетное добавление точек
+    - Адаптивный выбор стратегии
     """
     
     def __init__(self):
@@ -15,150 +24,186 @@ class PlanningEngine:
         self.constant_df = None
         self.variable_df = None
         self.retro_df = None
+        self._polygon_cache = None
+        self._rtree = None
+        self._polygon_ids_by_geom = {}
+        self._polygon_auditors_by_geom = {}
+        self._use_rtree = False
         
     def load_files(self, constant_file, variable_file, retro_file):
-        """Загружает три файла (без переименования колонок)"""
+        """Загружает три файла с оптимизациями"""
         
         def normalize_city_name(city):
             if pd.isna(city) or city == '':
                 return ''
-            city = str(city).strip()
-            return city.lower().title()
+            return str(city).strip().lower().title()
+        
+        def validate_coordinates(df, source_name):
+            """Проверяет наличие координат в DataFrame (без изменения)"""
+            if df is None or df.empty:
+                return False, f"Файл {source_name} пустой", df
+            
+            if 'Longitude' not in df.columns or 'Latitude' not in df.columns:
+                return False, f"В {source_name} отсутствуют колонки Longitude/Latitude", df
+            
+            try:
+                test_df = df.copy()
+                test_df['Longitude'] = test_df['Longitude'].astype(str).str.replace(',', '.').astype(float)
+                test_df['Latitude'] = test_df['Latitude'].astype(str).str.replace(',', '.').astype(float)
+            except Exception as e:
+                return False, f"В {source_name} координаты содержат нечисловые значения: {str(e)}", df
+            
+            return True, "OK", test_df
         
         # Константа
         if constant_file is not None:
             self.constant_df = pd.read_excel(constant_file)
             
-            if 'Latitude' in self.constant_df.columns:
-                self.constant_df['Latitude'] = self.constant_df['Latitude'].astype(str).str.replace(',', '.').astype(float)
-            if 'Longitude' in self.constant_df.columns:
-                self.constant_df['Longitude'] = self.constant_df['Longitude'].astype(str).str.replace(',', '.').astype(float)
+            is_valid, msg, validated_df = validate_coordinates(self.constant_df, "Константе")
+            if not is_valid:
+                st.error(f"❌ Ошибка в Константе: {msg}")
+                self.constant_df = None
+                return False
             
-            # Нормализуем города
+            self.constant_df = validated_df
+            
+            required_cols = ['Город', 'RED PoS Group', 'Сеть']
+            missing_cols = [col for col in required_cols if col not in self.constant_df.columns]
+            if missing_cols:
+                st.error(f"❌ В Константе отсутствуют колонки: {', '.join(missing_cols)}")
+                self.constant_df = None
+                return False
+            
             if 'Город' in self.constant_df.columns:
                 self.constant_df['Город'] = self.constant_df['Город'].apply(normalize_city_name)
             
-            # 🔥 РАССЧИТЫВАЕМ ПРОПОРЦИИ ПО ТИПАМ ИЗ КОНСТАНТЫ
             self.type_ratios = self.calculate_type_ratios()
+            self.client_ratios = self.calculate_client_ratios()
         
         # Переменная
         if variable_file is not None:
             self.variable_df = pd.read_excel(variable_file)
-            if 'Latitude' in self.variable_df.columns:
-                self.variable_df['Latitude'] = self.variable_df['Latitude'].astype(str).str.replace(',', '.').astype(float)
-            if 'Longitude' in self.variable_df.columns:
-                self.variable_df['Longitude'] = self.variable_df['Longitude'].astype(str).str.replace(',', '.').astype(float)
             
-            # 🔥 НОРМАЛИЗУЕМ ГОРОДА
-            if 'Город' in self.variable_df.columns:
-                self.variable_df['Город'] = self.variable_df['Город'].apply(normalize_city_name)
+            if self.variable_df.empty:
+                st.warning("⚠️ Файл Переменной пустой!")
+                self.variable_df = None
+            else:
+                is_valid, msg, validated_df = validate_coordinates(self.variable_df, "Переменной")
+                if not is_valid:
+                    st.error(f"❌ Ошибка в Переменной: {msg}")
+                    self.variable_df = None
+                else:
+                    self.variable_df = validated_df
+                    if 'Город' in self.variable_df.columns:
+                        self.variable_df['Город'] = self.variable_df['Город'].apply(normalize_city_name)
         
         # Ретро
         if retro_file is not None:
             self.retro_df = pd.read_excel(retro_file)
             
-            retro_mapping = {}
-            for col in self.retro_df.columns:
-                col_lower = col.lower().strip()
-                if col_lower in ['широта', 'latitude', 'lat', 'гео/ш']:
-                    retro_mapping[col] = 'Latitude'
-                elif col_lower in ['долгота', 'longitude', 'lon', 'гео/д']:
-                    retro_mapping[col] = 'Longitude'
-                elif col_lower in ['логин', 'login', 'auditor', 'id сотрудника', 'тп']:
-                    retro_mapping[col] = 'логин'
-                elif col_lower in ['тип', 'type', 'red pos group']:
-                    retro_mapping[col] = 'RED PoS Group'
-                elif col_lower in ['адрес', 'address', 'street name']:
-                    retro_mapping[col] = 'Street Name'
-                elif col_lower in ['город', 'city']:
-                    retro_mapping[col] = 'Город'
-                elif col_lower in ['сеть', 'network', 'chain']:
-                    retro_mapping[col] = 'Сеть'
-            
-            self.retro_df = self.retro_df.rename(columns=retro_mapping)
-            
-            if 'Latitude' in self.retro_df.columns:
-                self.retro_df['Latitude'] = self.retro_df['Latitude'].astype(str).str.replace(',', '.').astype(float)
-            if 'Longitude' in self.retro_df.columns:
-                self.retro_df['Longitude'] = self.retro_df['Longitude'].astype(str).str.replace(',', '.').astype(float)
-            
-            # 🔥 НОРМАЛИЗУЕМ ГОРОДА
-            if 'Город' in self.retro_df.columns:
-                self.retro_df['Город'] = self.retro_df['Город'].apply(normalize_city_name)
+            if self.retro_df.empty:
+                st.warning("⚠️ Файл Ретро пустой!")
+                self.retro_df = None
+            else:
+                retro_mapping = {}
+                for col in self.retro_df.columns:
+                    col_lower = col.lower().strip()
+                    if col_lower in ['широта', 'latitude', 'lat', 'гео/ш']:
+                        retro_mapping[col] = 'Latitude'
+                    elif col_lower in ['долгота', 'longitude', 'lon', 'гео/д']:
+                        retro_mapping[col] = 'Longitude'
+                    elif col_lower in ['логин', 'login', 'auditor', 'id сотрудника', 'тп']:
+                        retro_mapping[col] = 'логин'
+                    elif col_lower in ['тип', 'type', 'red pos group']:
+                        retro_mapping[col] = 'RED PoS Group'
+                    elif col_lower in ['адрес', 'address', 'street name']:
+                        retro_mapping[col] = 'Street Name'
+                    elif col_lower in ['город', 'city']:
+                        retro_mapping[col] = 'Город'
+                    elif col_lower in ['сеть', 'network', 'chain']:
+                        retro_mapping[col] = 'Сеть'
+                
+                self.retro_df = self.retro_df.rename(columns=retro_mapping)
+                
+                is_valid, msg, validated_df = validate_coordinates(self.retro_df, "Ретро")
+                if not is_valid:
+                    st.error(f"❌ Ошибка в Ретро: {msg}")
+                    self.retro_df = None
+                else:
+                    self.retro_df = validated_df
+                    if 'Город' in self.retro_df.columns:
+                        self.retro_df['Город'] = self.retro_df['Город'].apply(normalize_city_name)
         
         return self.constant_df is not None
     
+    @lru_cache(maxsize=128)
+    def _get_city_ratios_cached(self):
+        """Кешированный расчёт пропорций по городам"""
+        return self.calculate_city_ratios()
+    
     def calculate_client_ratios(self):
-        if self.constant_df is None: return {}
+        if self.constant_df is None or self.constant_df.empty:
+            return {}
+        
         total_rows = len(self.constant_df)
-        if total_rows == 0: return {}
         client_counts = self.constant_df['Сеть'].value_counts()
-        self.client_ratios = {}
-        for client, count in client_counts.items():
-            self.client_ratios[client] = (count / total_rows) * 100
-        return self.client_ratios
+        return {client: (count / total_rows * 100) for client, count in client_counts.items()}
     
     def calculate_city_ratios(self):
-        if self.constant_df is None: return {}
+        if self.constant_df is None or self.constant_df.empty:
+            return {}
+        
         total_rows = len(self.constant_df)
-        if total_rows == 0: return {}
         city_counts = self.constant_df['Город'].value_counts()
-        city_ratios = {}
-        for city, count in city_counts.items():
-            city_ratios[city] = (count / total_rows) * 100
-        return city_ratios
+        return {city: (count / total_rows * 100) for city, count in city_counts.items()}
 
     def calculate_type_ratios(self):
-        """Вычисляет пропорции по типам магазинов из Константы"""
-        if self.constant_df is None:
+        if self.constant_df is None or self.constant_df.empty:
             return {}
         
         total_rows = len(self.constant_df)
-        if total_rows == 0:
-            return {}
-        
         type_counts = self.constant_df['RED PoS Group'].value_counts()
         
-        type_ratios = {}
-        for type_name, count in type_counts.items():
-            if type_name and type_name != 'nan':
-                type_ratios[type_name] = (count / total_rows) * 100
-        
-        return type_ratios
+        return {
+            type_name: (count / total_rows * 100) 
+            for type_name, count in type_counts.items() 
+            if type_name and type_name != 'nan'
+        }
 
-    def calculate_score_v2(self, point, final_ap, type_ratios, client_ratios,
-                       bonus_type=6, bonus_proximity=5, bonus_client=4):
+    def calculate_score_v2(self, point, type_counts, client_counts, total,
+                          type_ratios, client_ratios,
+                          bonus_type=6, bonus_proximity=5, bonus_client=4):
         """
         Расчёт Score точки на основе:
         1. Тип магазина (бонус)
         2. Клиент (бонус)
         3. Близость к Константе (добавляется отдельно)
+        
+        type_counts и client_counts передаются готовыми (ускорение!)
         """
         score = 0
         
-        # 1. Тип магазина
+        # 1. Тип магазина (используем готовые type_counts)
         if bonus_type > 0 and 'RED PoS Group' in point and type_ratios:
             point_type = point['RED PoS Group']
-            if not final_ap.empty:
-                total = len(final_ap)
-                type_counts = final_ap['RED PoS Group'].value_counts()
+            if point_type in type_ratios:
                 current_count = type_counts.get(point_type, 0)
                 current_ratio = (current_count / total * 100) if total > 0 else 0
-                expected_ratio = type_ratios.get(point_type, 0)
+                expected_ratio = type_ratios[point_type]
+                
                 if expected_ratio > 0 and current_ratio < expected_ratio:
                     shortage = expected_ratio - current_ratio
                     bonus_multiplier = min(1.0, shortage / 10)
                     score += int(bonus_type * bonus_multiplier)
         
-        # 2. Клиент
+        # 2. Клиент (используем готовые client_counts)
         if bonus_client > 0 and 'Сеть' in point and client_ratios:
             point_client = point['Сеть']
-            if not final_ap.empty:
-                total = len(final_ap)
-                client_counts = final_ap['Сеть'].value_counts()
+            if point_client in client_ratios:
                 current_count = client_counts.get(point_client, 0)
                 current_ratio = (current_count / total * 100) if total > 0 else 0
-                expected_ratio = client_ratios.get(point_client, 0)
+                expected_ratio = client_ratios[point_client]
+                
                 if expected_ratio > 0 and current_ratio < expected_ratio:
                     shortage = expected_ratio - current_ratio
                     bonus_multiplier = min(1.0, shortage / 10)
@@ -166,276 +211,410 @@ class PlanningEngine:
         
         return score
 
-    def calculate_top_proximity_points(self, city, candidates, constant_df, top_percent=20):
-        """
-        Возвращает список точек, входящих в топ X% самых близких к Константе
-        """
-        if not candidates or constant_df is None or constant_df.empty:
-            return []
-        
-        from shapely.geometry import Point
-        
-        # Фильтруем точки Константы по городу
-        city_constant = constant_df[constant_df['Город'] == city]
-        if city_constant.empty:
-            return []
-        
-        # Для каждой точки-кандидата считаем расстояние до ближайшей точки Константы
-        scored = []
-        for point in candidates:
-            point_geom = Point(point['Longitude'], point['Latitude'])
-            min_dist = float('inf')
-            for _, const_row in city_constant.iterrows():
-                const_geom = Point(const_row['Longitude'], const_row['Latitude'])
-                dist = point_geom.distance(const_geom)
-                if dist < min_dist:
-                    min_dist = dist
-            scored.append((min_dist, point))
-        
-        # Сортируем по расстоянию
-        scored.sort(key=lambda x: x[0])
-        
-        # Берём топ X%
-        top_count = max(1, int(len(scored) * top_percent / 100))
-        return [point for _, point in scored[:top_count]]
-        
     def get_statistics(self):
         stats = {}
         if self.constant_df is not None:
             stats['constant_count'] = len(self.constant_df)
-            stats['constant_clients'] = self.constant_df['Сеть'].nunique()
-            stats['constant_cities'] = self.constant_df['Город'].nunique()
+            stats['constant_clients'] = self.constant_df['Сеть'].nunique() if 'Сеть' in self.constant_df.columns else 0
+            stats['constant_cities'] = self.constant_df['Город'].nunique() if 'Город' in self.constant_df.columns else 0
         if self.variable_df is not None:
             stats['variable_count'] = len(self.variable_df)
-            stats['variable_cities'] = self.variable_df['Город'].nunique()
+            stats['variable_cities'] = self.variable_df['Город'].nunique() if 'Город' in self.variable_df.columns else 0
         if self.retro_df is not None:
             stats['retro_count'] = len(self.retro_df)
-            stats['retro_auditors'] = self.retro_df['логин'].nunique()
+            stats['retro_auditors'] = self.retro_df['логин'].nunique() if 'логин' in self.retro_df.columns else 0
         return stats
     
     def check_point_in_polygons(self, lon, lat, polygons):
-        if not polygons: return False
+        if not polygons:
+            return False
         point = Point(lon, lat)
-        for polygon in polygons:
-            if polygon.contains(point): return True
-        return False
+        return any(polygon.contains(point) for polygon in polygons)
     
-    def build_plan_balanced(self, fact_polygons, target_ap, 
-                            constant_threshold=95, variable_threshold=95, 
-                            city_tolerance_percent=0, type_tolerance_percent=0,
-                            bonus_type=6, bonus_proximity=5, bonus_client=4):
+    def _prepare_polygons(self, fact_polygons):
         """
-        Формирует план визитов (АП) сбалансированно:
-        - Константа → основа
-        - Переменная → выравнивание полигонов (по кругу, по 1 точке)
-        - Ретро → если не хватило Переменной
-        - Контроль плана после каждого города
+        Подготовка полигонов с кешированием + R-Tree
         """
-        if self.constant_df is None:
-            return {'status': 'error', 'message': 'Загрузите файл Константы!'}
+        if self._polygon_cache is not None:
+            return self._polygon_cache
         
-        if not fact_polygons:
-            return {'status': 'error', 'message': 'Сначала загрузите факт-полигоны!'}
-        
-        # 1. Преобразуем факт-полигоны в shapely-полигоны
         polygon_geoms = []
         polygon_auditors = []
         polygon_cities = []
         polygon_ids = []
+        prepared_polygons = []
         
         for poly_id, poly_data in fact_polygons.items():
             coords = poly_data['coordinates']
             if coords and len(coords) >= 3:
                 if coords[0] != coords[-1]:
                     coords = coords + [coords[0]]
-                polygon_geoms.append(Polygon(coords))
+                poly = Polygon(coords)
+                polygon_geoms.append(poly)
+                prepared_polygons.append(prep(poly))
                 polygon_auditors.append(poly_data['auditor_id'])
                 polygon_cities.append(poly_data.get('city', 'Неизвестно'))
                 polygon_ids.append(poly_id)
         
-        if not polygon_geoms:
+        # ========== СОЗДАЁМ R-TREE ==========
+        # Только если полигонов > 5 (иначе overhead > выигрыш)
+        if len(polygon_geoms) > 5:
+            self._rtree = STRtree(polygon_geoms)
+            self._polygon_ids_by_geom = {}
+            self._polygon_auditors_by_geom = {}
+            for i, poly_geom in enumerate(polygon_geoms):
+                self._polygon_ids_by_geom[id(poly_geom)] = polygon_ids[i]
+                self._polygon_auditors_by_geom[id(poly_geom)] = polygon_auditors[i]
+            self._use_rtree = True
+        else:
+            self._rtree = None
+            self._polygon_ids_by_geom = {}
+            self._polygon_auditors_by_geom = {}
+            self._use_rtree = False
+        # ==================================
+        
+        self._polygon_cache = (prepared_polygons, polygon_ids, polygon_auditors, polygon_cities, polygon_geoms)
+        return self._polygon_cache
+    
+    def _assign_polygons_vectorized(self, df, source_name, polygon_data):
+        """
+        ВЕКТОРИЗОВАННОЕ присвоение полигонов
+        С R-Tree для больших данных
+        """
+        if df is None or df.empty:
+            return pd.DataFrame()
+        
+        if 'Longitude' not in df.columns or 'Latitude' not in df.columns:
+            return pd.DataFrame()
+        
+        prepared_polygons, polygon_ids, polygon_auditors, polygon_cities, polygon_geoms = polygon_data
+        
+        if not prepared_polygons:
+            return pd.DataFrame()
+        
+        df_copy = df.copy()
+        df_copy['полигон_id'] = None
+        df_copy['Аудитор'] = None
+        df_copy['Источник'] = source_name
+        
+        # Создаём точки
+        points = []
+        valid_indices = []
+        for idx, row in df_copy.iterrows():
+            try:
+                points.append(Point(float(row['Longitude']), float(row['Latitude'])))
+                valid_indices.append(idx)
+            except (ValueError, TypeError):
+                continue
+        
+        if not points:
+            return pd.DataFrame()
+        
+        # ========== ВЫБОР СТРАТЕГИИ ==========
+        if self._use_rtree and self._rtree is not None:
+            # БЫСТРЫЙ ПУТЬ: R-Tree (для РФ)
+            for point_idx, point in enumerate(points):
+                possible = self._rtree.query(point)
+                for poly_geom in possible:
+                    poly_id = self._polygon_ids_by_geom.get(id(poly_geom))
+                    if poly_id is not None and poly_geom.contains(point):
+                        df_copy.loc[valid_indices[point_idx], 'полигон_id'] = poly_id
+                        df_copy.loc[valid_indices[point_idx], 'Аудитор'] = self._polygon_auditors_by_geom.get(id(poly_geom), '')
+                        break
+        else:
+            # МЕДЛЕННЫЙ ПУТЬ: вложенный цикл (для малых данных)
+            for i, (prep_poly, poly_id, auditor) in enumerate(zip(prepared_polygons, polygon_ids, polygon_auditors)):
+                mask = np.array([prep_poly.contains(p) for p in points])
+                if mask.any():
+                    indices_to_assign = []
+                    for j, idx in enumerate(valid_indices):
+                        if mask[j] and pd.isna(df_copy.loc[idx, 'полигон_id']):
+                            indices_to_assign.append(idx)
+                    if indices_to_assign:
+                        df_copy.loc[indices_to_assign, 'полигон_id'] = poly_id
+                        df_copy.loc[indices_to_assign, 'Аудитор'] = auditor
+        # ==================================
+        
+        df_copy = df_copy[df_copy['полигон_id'].notna()]
+        return df_copy
+    
+    def _group_by_polygon(self, points):
+        """Группирует точки по полигонам с добавлением _idx"""
+        result = {}
+        for point in points:
+            poly_id = point.get('полигон_id')
+            if poly_id:
+                if poly_id not in result:
+                    result[poly_id] = []
+                point['_idx'] = f"{poly_id}_{len(result[poly_id])}_{point.get('Longitude', 0)}_{point.get('Latitude', 0)}"
+                result[poly_id].append(point)
+        return result
+    
+    def _get_batch_size(self, num_polygons):
+        """Адаптивный выбор размера пакета"""
+        if num_polygons <= 3:
+            return 3
+        elif num_polygons <= 10:
+            return 5
+        else:
+            return 10
+    
+    def _get_top_proximity_points(self, city, all_candidates_df):
+        """
+        БЫСТРЫЙ поиск топ-20% ближайших точек к Константе
+        """
+        if not city or self.constant_df is None or self.constant_df.empty or all_candidates_df.empty:
+            return set()
+        
+        if 'Город' not in all_candidates_df.columns:
+            return set()
+        if 'Longitude' not in all_candidates_df.columns or 'Latitude' not in all_candidates_df.columns:
+            return set()
+        
+        city_constant = self.constant_df[self.constant_df['Город'] == city]
+        if city_constant.empty:
+            return set()
+        
+        if 'Longitude' not in city_constant.columns or 'Latitude' not in city_constant.columns:
+            return set()
+        
+        const_coords = city_constant[['Longitude', 'Latitude']].values
+        cand_coords = all_candidates_df[['Longitude', 'Latitude']].values
+        
+        if len(const_coords) == 0 or len(cand_coords) == 0:
+            return set()
+        
+        min_distances = []
+        for cand in cand_coords:
+            diff = const_coords - cand
+            dist = np.sqrt(np.sum(diff**2, axis=1))
+            min_distances.append(np.min(dist))
+        
+        top_count = max(1, int(len(cand_coords) * 20 / 100))
+        if top_count >= len(cand_coords):
+            return set(zip(cand_coords[:, 0], cand_coords[:, 1]))
+        
+        indices = np.argsort(min_distances)[:top_count]
+        top_points = cand_coords[indices]
+        
+        return set(zip(top_points[:, 0], top_points[:, 1]))
+    
+    def _select_best_point(self, candidates, type_counts, client_counts, total,
+                          type_ratios, client_ratios, city_top_points,
+                          bonus_type=6, bonus_proximity=5, bonus_client=4):
+        """Выбирает лучшую точку с максимальным Score"""
+        if not candidates:
+            return None, type_counts, client_counts, total
+        
+        scores = []
+        for point in candidates:
+            score = self.calculate_score_v2(
+                point, type_counts, client_counts, total,
+                type_ratios, client_ratios,
+                bonus_type, bonus_proximity, bonus_client
+            )
+            # Бонус за близость
+            if (point['Longitude'], point['Latitude']) in city_top_points:
+                score += bonus_proximity
+            
+            scores.append(score)
+        
+        if not scores:
+            return None, type_counts, client_counts, total
+        
+        best_idx = max(range(len(scores)), key=lambda i: scores[i])
+        best_point = candidates[best_idx]
+        
+        # Обновляем счётчики
+        if best_point.get('RED PoS Group'):
+            type_name = best_point['RED PoS Group']
+            type_counts[type_name] = type_counts.get(type_name, 0) + 1
+        if best_point.get('Сеть'):
+            client_name = best_point['Сеть']
+            client_counts[client_name] = client_counts.get(client_name, 0) + 1
+        total += 1
+        
+        return best_point, type_counts, client_counts, total
+    
+    def build_plan_balanced(self, fact_polygons, target_ap, 
+                            constant_threshold=95, variable_threshold=95, 
+                            city_tolerance_percent=0, type_tolerance_percent=0,
+                            bonus_type=6, bonus_proximity=5, bonus_client=4):
+        """
+        ОПТИМИЗИРОВАННАЯ ВЕРСИЯ 2.0
+        - R-Tree для быстрой проверки точек
+        - Группировка кандидатов через словарь
+        - Пакетное добавление точек
+        - Адаптивный выбор стратегии
+        """
+        # Проверки
+        if self.constant_df is None:
+            return {'status': 'error', 'message': 'Загрузите файл Константы!'}
+        
+        if not fact_polygons:
+            return {'status': 'error', 'message': 'Сначала загрузите факт-полигоны!'}
+        
+        # 1. Подготовка полигонов (с кешированием + R-Tree)
+        polygon_data = self._prepare_polygons(fact_polygons)
+        prepared_polygons, polygon_ids, polygon_auditors, polygon_cities, _ = polygon_data
+        
+        if not prepared_polygons:
             return {'status': 'error', 'message': 'Нет валидных полигонов!'}
         
-        # 2. Отбор Константы
-        constant_selected = []
-        constant_total = len(self.constant_df)
-        error_points = []
-        polygon_points = {poly_id: [] for poly_id in polygon_ids}
-        polygon_count = {poly_id: 0 for poly_id in polygon_ids}
-        city_count = {}
+        # 2. Обработка Константы
+        constant_selected_df = self._assign_polygons_vectorized(self.constant_df, 'Константа', polygon_data)
         
-        for _, row in self.constant_df.iterrows():
-            point = Point(row['Longitude'], row['Latitude'])
-            assigned_polygon = None
-            assigned_auditor = ''
-            assigned_city = ''
-            
-            for i, poly_geom in enumerate(polygon_geoms):
-                if poly_geom.contains(point):
-                    assigned_polygon = polygon_ids[i]
-                    assigned_auditor = polygon_auditors[i]
-                    assigned_city = polygon_cities[i]
-                    break
-            
-            if assigned_polygon:
-                row_dict = row.to_dict()
-                row_dict['Аудитор'] = assigned_auditor
-                row_dict['полигон_id'] = assigned_polygon
-                row_dict['Источник'] = 'Константа'
-                constant_selected.append(row_dict)
-                polygon_points[assigned_polygon].append(row_dict)
-                polygon_count[assigned_polygon] += 1
-                if assigned_city not in city_count:
-                    city_count[assigned_city] = 0
-                city_count[assigned_city] += 1
-            else:
-                error_points.append(row.to_dict())
+        if constant_selected_df.empty:
+            return {'status': 'error', 'message': 'Ни одна точка Константы не попала в полигоны!'}
         
-        constant_selected_df = pd.DataFrame(constant_selected)
+        polygon_count = constant_selected_df.groupby('полигон_id').size().to_dict()
+        city_count = constant_selected_df.groupby('Город').size().to_dict()
+        
         final_ap = constant_selected_df.copy()
+        error_points = []
         
         if len(final_ap) >= target_ap:
             final_ap = final_ap.head(target_ap)
             return self._build_result(final_ap, constant_selected_df, pd.DataFrame(), pd.DataFrame(),
-                                       error_points, target_ap, constant_total,
+                                       error_points, target_ap, len(self.constant_df),
                                        len(self.variable_df) or 0, len(self.retro_df) or 0,
                                        constant_threshold, variable_threshold,
                                        city_tolerance_percent, type_tolerance_percent)
         
         # 3. Расчёт целевых показателей
         city_ratios = self.calculate_city_ratios()
-        target_by_city = {}
-        for city, ratio in city_ratios.items():
-            target_by_city[city] = int(target_ap * ratio / 100)
+        target_by_city = {city: int(target_ap * ratio / 100) for city, ratio in city_ratios.items()}
         
-        # 4. Подготовка Переменной и Ретро
-        variable_points = []
-        if self.variable_df is not None and not self.variable_df.empty:
-            for _, row in self.variable_df.iterrows():
-                point = Point(row['Longitude'], row['Latitude'])
-                for i, poly_geom in enumerate(polygon_geoms):
-                    if poly_geom.contains(point):
-                        row_dict = row.to_dict()
-                        row_dict['полигон_id'] = polygon_ids[i]
-                        row_dict['Аудитор'] = polygon_auditors[i]
-                        variable_points.append(row_dict)
-                        break
+        # 4. Обработка Переменной и Ретро
+        variable_selected_df = self._assign_polygons_vectorized(self.variable_df, 'Переменная', polygon_data)
+        retro_selected_df = self._assign_polygons_vectorized(self.retro_df, 'Ретро', polygon_data)
         
-        retro_points = []
-        if self.retro_df is not None and not self.retro_df.empty:
-            for _, row in self.retro_df.iterrows():
-                point = Point(row['Longitude'], row['Latitude'])
-                for i, poly_geom in enumerate(polygon_geoms):
-                    if poly_geom.contains(point):
-                        row_dict = row.to_dict()
-                        row_dict['полигон_id'] = polygon_ids[i]
-                        row_dict['Аудитор'] = polygon_auditors[i]
-                        retro_points.append(row_dict)
-                        break
+        # ========== 5. ГРУППИРОВКА КАНДИДАТОВ (СЛОВАРЬ) ==========
+        variable_points = variable_selected_df.to_dict('records') if not variable_selected_df.empty else []
+        retro_points = retro_selected_df.to_dict('records') if not retro_selected_df.empty else []
         
-        # 5. Выравнивание полигонов (по кругу, с приоритетом по Score)
+        variable_by_polygon = self._group_by_polygon(variable_points)
+        retro_by_polygon = self._group_by_polygon(retro_points)
+        # =========================================================
+        
+        # ========== 6. АДАПТИВНЫЙ РАЗМЕР ПАКЕТА ==========
+        batch_size = self._get_batch_size(len(polygon_ids))
+        new_rows = []  # для накопления добавляемых точек
+        # =================================================
+        
+        # 7. Выравнивание полигонов
         cities_sorted = sorted(city_count.keys(), key=lambda c: city_count.get(c, 0))
         
+        all_candidates_df = pd.concat([
+            variable_selected_df if not variable_selected_df.empty else pd.DataFrame(),
+            retro_selected_df if not retro_selected_df.empty else pd.DataFrame()
+        ])
+        
         for city in cities_sorted:
-            city_polygons = [p for p in polygon_ids if p in polygon_points and polygon_points[p]]
+            if len(final_ap) + len(new_rows) >= target_ap:
+                break
+            
+            city_polygons = [p for p in polygon_ids if polygon_count.get(p, 0) > 0]
             if not city_polygons:
                 continue
             
-            # Топ 20% близких точек для этого города
-            all_candidates = []
-            for point in variable_points + retro_points:
-                if point.get('Город') == city:
-                    all_candidates.append(point)
-            
-            city_top_points = self.calculate_top_proximity_points(
-                city, all_candidates, self.constant_df, top_percent=20
-            )
+            city_candidates = all_candidates_df[all_candidates_df['Город'] == city]
+            city_top_points = self._get_top_proximity_points(city, city_candidates)
             
             current_counts = {p: polygon_count.get(p, 0) for p in city_polygons}
-            source_index = 0
-            sources = [('variable', variable_points), ('retro', retro_points)]
             
-            while source_index < len(sources):
-                source_name, source_data = sources[source_index]
-                if not source_data:
-                    source_index += 1
-                    continue
+            # ========== 8. ПОДГОТОВКА ПРОПОРЦИЙ ОДИН РАЗ ==========
+            current_ap = pd.concat([final_ap, pd.DataFrame(new_rows)], ignore_index=True) if new_rows else final_ap
+            type_counts = current_ap['RED PoS Group'].value_counts() if not current_ap.empty else pd.Series()
+            client_counts = current_ap['Сеть'].value_counts() if not current_ap.empty else pd.Series()
+            total = len(current_ap)
+            # =====================================================
+            
+            max_iterations = 100
+            for _ in range(max_iterations):
+                if len(final_ap) + len(new_rows) >= target_ap:
+                    break
                 
-                sorted_polygons = sorted(city_polygons, key=lambda p: current_counts.get(p, 0))
                 min_count = min(current_counts.values())
                 max_count = max(current_counts.values())
+                
                 if max_count - min_count <= 1:
-                    source_index += 1
-                    continue
+                    break
                 
-                # Считаем текущие пропорции один раз
-                total = len(final_ap)
-                type_counts = final_ap['RED PoS Group'].value_counts() if not final_ap.empty else pd.Series()
-                client_counts = final_ap['Сеть'].value_counts() if not final_ap.empty else pd.Series()
-                
-                type_ratios = self.type_ratios
-                client_ratios = self.client_ratios
+                sorted_polygons = sorted(city_polygons, key=lambda p: current_counts.get(p, 0))
                 
                 for poly_id in sorted_polygons:
-                    if len(final_ap) >= target_ap:
+                    if len(final_ap) + len(new_rows) >= target_ap:
                         break
+                    
                     if target_by_city.get(city, 0) > 0 and city_count.get(city, 0) >= target_by_city[city]:
                         break
                     
-                    # Собираем точки для этого полигона
+                    # ========== 9. КАНДИДАТЫ ИЗ СЛОВАРЯ ==========
                     candidates = []
-                    for point_data in source_data:
-                        if point_data.get('полигон_id') == poly_id:
-                            candidates.append(point_data)
+                    if poly_id in variable_by_polygon:
+                        candidates.extend(variable_by_polygon[poly_id])
+                    if poly_id in retro_by_polygon:
+                        candidates.extend(retro_by_polygon[poly_id])
+                    # =============================================
                     
                     if not candidates:
                         continue
                     
-                    # Считаем Score для каждой точки
-                    scored_points = []
-                    for point in candidates:
-                        score = self.calculate_score_v2(
-                            point, final_ap, type_ratios, client_ratios,
-                            bonus_type, bonus_proximity, bonus_client
-                        )
-                        # Добавляем бонус за близость (если точка в топ 20%)
-                        if bonus_proximity > 0 and city_top_points:
-                            for tp in city_top_points:
-                                if (tp.get('Longitude') == point.get('Longitude') and
-                                    tp.get('Latitude') == point.get('Latitude')):
-                                    score += bonus_proximity
-                                    break
-                        scored_points.append((score, point))
+                    # ========== 10. ВЫБОР ЛУЧШЕЙ ТОЧКИ ==========
+                    best_point, type_counts, client_counts, total = self._select_best_point(
+                        candidates, type_counts, client_counts, total,
+                        self.type_ratios, self.client_ratios, city_top_points,
+                        bonus_type, bonus_proximity, bonus_client
+                    )
+                    # =============================================
                     
-                    # Сортируем по убыванию Score
-                    scored_points.sort(key=lambda x: x[0], reverse=True)
+                    if best_point is None:
+                        continue
                     
-                    # Берём лучшую точку
-                    best_score, best_point = scored_points[0]
+                    # Определяем источник
+                    is_variable = False
+                    if poly_id in variable_by_polygon:
+                        for p in variable_by_polygon[poly_id]:
+                            if p.get('_idx') == best_point.get('_idx'):
+                                is_variable = True
+                                break
                     
-                    # Удаляем из source_data
-                    for i, point_data in enumerate(source_data):
-                        if (point_data.get('Longitude') == best_point.get('Longitude') and
-                            point_data.get('Latitude') == best_point.get('Latitude')):
-                            source_data.pop(i)
-                            break
+                    # Удаляем из источников
+                    if poly_id in variable_by_polygon:
+                        variable_by_polygon[poly_id] = [
+                            p for p in variable_by_polygon[poly_id] 
+                            if p.get('_idx') != best_point.get('_idx')
+                        ]
+                    if poly_id in retro_by_polygon:
+                        retro_by_polygon[poly_id] = [
+                            p for p in retro_by_polygon[poly_id] 
+                            if p.get('_idx') != best_point.get('_idx')
+                        ]
                     
-                    # Добавляем в финальный план
-                    best_point['Источник'] = 'Переменная' if source_name == 'variable' else 'Ретро'
-                    final_ap = pd.concat([final_ap, pd.DataFrame([best_point])], ignore_index=True)
+                    best_point['Источник'] = 'Переменная' if is_variable else 'Ретро'
+                    
+                    # ========== 11. НАКОПЛЕНИЕ В new_rows ==========
+                    new_rows.append(best_point)
                     current_counts[poly_id] = current_counts.get(poly_id, 0) + 1
                     city_count[city] = city_count.get(city, 0) + 1
-                
-                if len(final_ap) >= target_ap:
-                    break
-            if len(final_ap) >= target_ap:
-                break
+                    # =================================================
+                    
+                    if len(final_ap) + len(new_rows) >= target_ap:
+                        break
         
-        # 6. Финальная статистика
+        # ========== 12. ОДИН concat В КОНЦЕ ==========
+        if new_rows:
+            valid_rows = [row for row in new_rows if row and isinstance(row, dict)]
+            if valid_rows:
+                final_ap = pd.concat([final_ap, pd.DataFrame(valid_rows)], ignore_index=True)
+        # =============================================
+        
+        # 13. Финальная статистика
         return self._build_result(final_ap, constant_selected_df, 
-                                   pd.DataFrame(variable_points), 
-                                   pd.DataFrame(retro_points),
-                                   error_points, target_ap, constant_total,
+                                   pd.DataFrame(variable_points) if variable_points else pd.DataFrame(),
+                                   pd.DataFrame(retro_points) if retro_points else pd.DataFrame(),
+                                   error_points, target_ap, len(self.constant_df),
                                    len(self.variable_df) or 0, len(self.retro_df) or 0,
                                    constant_threshold, variable_threshold,
                                    city_tolerance_percent, type_tolerance_percent,
@@ -450,9 +629,12 @@ class PlanningEngine:
         final_count = len(final_ap)
         plan_completion = (final_count / target_ap * 100) if target_ap > 0 else 0
         
-        constant_fact = len(final_ap[final_ap['Источник'] == 'Константа']) if not final_ap.empty else 0
-        variable_fact = len(final_ap[final_ap['Источник'] == 'Переменная']) if not final_ap.empty else 0
-        retro_fact = len(final_ap[final_ap['Источник'] == 'Ретро']) if not final_ap.empty else 0
+        if not final_ap.empty and 'Источник' in final_ap.columns:
+            constant_fact = len(final_ap[final_ap['Источник'] == 'Константа'])
+            variable_fact = len(final_ap[final_ap['Источник'] == 'Переменная'])
+            retro_fact = len(final_ap[final_ap['Источник'] == 'Ретро'])
+        else:
+            constant_fact = variable_fact = retro_fact = 0
         
         constant_utilization = (constant_fact / constant_total * 100) if constant_total > 0 else 0
         variable_utilization = (variable_fact / variable_total * 100) if variable_total > 0 else 0
@@ -464,7 +646,6 @@ class PlanningEngine:
             actual_city_counts = final_ap['Город'].value_counts()
             total = len(final_ap)
             
-            # Собираем все уникальные города из final_ap И city_ratios
             all_cities = set(actual_city_counts.index) | set(city_ratios.keys())
             
             for city in all_cities:
@@ -475,7 +656,6 @@ class PlanningEngine:
                 if expected_ratio > 0:
                     deviation_percent = abs(actual_ratio - expected_ratio) / expected_ratio * 100
                 else:
-                    # Если города не было в Константе, но он появился в плане
                     deviation_percent = 100 if actual_count > 0 else 0
                 
                 if deviation_percent > city_tolerance_percent:
