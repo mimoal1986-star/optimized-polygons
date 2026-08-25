@@ -629,6 +629,7 @@ with tab2:
                         st.balloons()
                     elif result['status'] == 'warning':
                         st.warning(result['message'])
+                        st.balloons()
                         if 'warnings' in result and result['warnings']:
                             with st.expander("⚠️ Детали предупреждений"):
                                 for warning in result['warnings']:
