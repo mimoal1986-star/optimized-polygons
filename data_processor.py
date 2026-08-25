@@ -404,7 +404,7 @@ class DataProcessor:
             return {}
 
     def save_fact_polygons(self, polygons_dict):
-        """Сохранение факт-полигонов в GitHub"""
+        """Сохранение факт-полигонов в GitHub с обработкой конфликтов"""
         if not self.available:
             return False, "❌ GitHub не доступен"
         
@@ -413,6 +413,8 @@ class DataProcessor:
             content_base64 = base64.b64encode(content.encode("utf-8")).decode("utf-8")
             
             url = f"https://api.github.com/repos/{self.repo}/contents/fact_polygons.json"
+            
+            # Получаем текущий SHA
             sha = None
             try:
                 response = requests.get(
@@ -439,6 +441,33 @@ class DataProcessor:
                 json=payload
             )
             
+            # ========== ОБРАБОТКА КОНФЛИКТА 409 ==========
+            if response.status_code == 409:
+                st.warning("⚠️ Конфликт при сохранении. Пробуем обновить SHA и повторить...")
+                
+                try:
+                    # Получаем новый SHA
+                    response_get = requests.get(
+                        url,
+                        headers=self.headers,
+                        params={"ref": self.branch}
+                    )
+                    if response_get.status_code == 200:
+                        new_sha = response_get.json()["sha"]
+                        payload["sha"] = new_sha
+                        
+                        # Повторяем сохранение с новым SHA
+                        response = requests.put(
+                            url,
+                            headers=self.headers,
+                            json=payload
+                        )
+                    else:
+                        return False, f"❌ Не удалось получить новый SHA: {response_get.status_code}"
+                except Exception as e:
+                    return False, f"❌ Ошибка при обновлении SHA: {str(e)}"
+            # =============================================
+            
             if response.status_code in [200, 201]:
                 return True, f"✅ Полигоны сохранены в GitHub ({len(polygons_dict)} шт)"
             else:
@@ -446,6 +475,7 @@ class DataProcessor:
                 
         except Exception as e:
             return False, f"❌ Ошибка: {str(e)}"
+    
 
     def clear_fact_polygons(self):
         """Очищает факт-полигоны (удаляет файл из GitHub)"""
