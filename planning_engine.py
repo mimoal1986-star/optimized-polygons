@@ -6,6 +6,8 @@ from shapely.strtree import STRtree
 from typing import Dict, Tuple, Optional, Set
 import numpy as np
 from functools import lru_cache
+import shapely
+print("Shapely version:", shapely.__version__)
 
 class PlanningEngine:
     """
