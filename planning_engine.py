@@ -475,11 +475,17 @@ class PlanningEngine:
         
         if len(final_ap) >= target_ap:
             final_ap = final_ap.head(target_ap)
-            return self._build_result(final_ap, constant_selected_df, pd.DataFrame(), pd.DataFrame(),
-                                       error_points, target_ap, len(self.constant_df),
-                                       len(self.variable_df) or 0, len(self.retro_df) or 0,
-                                       constant_threshold, variable_threshold,
-                                       city_tolerance_percent, type_tolerance_percent)
+            return self._build_result(
+                final_ap, constant_selected_df, 
+                pd.DataFrame(variable_points) if variable_points else pd.DataFrame(),
+                pd.DataFrame(retro_points) if retro_points else pd.DataFrame(),
+                error_points, target_ap, len(self.constant_df),
+                len(self.variable_df) if self.variable_df is not None else 0,
+                len(self.retro_df) if self.retro_df is not None else 0,
+                constant_threshold, variable_threshold,
+                city_tolerance_percent, type_tolerance_percent,
+                city_ratios
+            )
         
         # 3. Расчёт целевых показателей
         city_ratios = self.calculate_city_ratios()
@@ -619,16 +625,19 @@ class PlanningEngine:
             if valid_rows:
                 final_ap = pd.concat([final_ap, pd.DataFrame(valid_rows)], ignore_index=True)
         # =============================================
-        
+
         # 13. Финальная статистика
-        return self._build_result(final_ap, constant_selected_df, 
-                                   pd.DataFrame(variable_points) if variable_points else pd.DataFrame(),
-                                   pd.DataFrame(retro_points) if retro_points else pd.DataFrame(),
-                                   error_points, target_ap, len(self.constant_df),
-                                   len(self.variable_df) or 0, len(self.retro_df) or 0,
-                                   constant_threshold, variable_threshold,
-                                   city_tolerance_percent, type_tolerance_percent,
-                                   city_ratios)
+        return self._build_result(
+            final_ap, constant_selected_df, 
+            pd.DataFrame(variable_points) if variable_points else pd.DataFrame(),
+            pd.DataFrame(retro_points) if retro_points else pd.DataFrame(),
+            error_points, target_ap, len(self.constant_df),
+            len(self.variable_df) if self.variable_df is not None else 0,
+            len(self.retro_df) if self.retro_df is not None else 0,
+            constant_threshold, variable_threshold,
+            city_tolerance_percent, type_tolerance_percent,
+            city_ratios
+        )
     
     def _build_result(self, final_ap, constant_selected, variable_selected, retro_selected,
                       error_points, target_ap, constant_total, variable_total, retro_total,
