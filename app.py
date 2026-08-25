@@ -181,119 +181,119 @@ except Exception as e:
 st.title("🗺️ Сервис генерации полигонов аудиторов")
 st.markdown("---")
 
-# ==============================================
-# БОКОВАЯ ПАНЕЛЬ
-# ==============================================
-with st.sidebar:
-    st.header("📊 Управление данными")
+# # ==============================================
+# # БОКОВАЯ ПАНЕЛЬ
+# # ==============================================
+# with st.sidebar:
+#     st.header("📊 Управление данными")
     
-    uploaded_file = st.file_uploader(
-        "Загрузите Excel файл с данными",
-        type=['xlsx', 'xls'],
-        help="Файл должен содержать колонки: ТП, Гео/ш, Гео/д"
-    )
+#     uploaded_file = st.file_uploader(
+#         "Загрузите Excel файл с данными",
+#         type=['xlsx', 'xls'],
+#         help="Файл должен содержать колонки: ТП, Гео/ш, Гео/д"
+#     )
     
-    if uploaded_file is not None:
-        if ('file_processed' not in st.session_state or 
-            st.session_state.file_processed != uploaded_file.name):
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            try:
-                status_text.text("Чтение файла...")
-                progress_bar.progress(20)
-                count, message = data_processor.process_uploaded_file(uploaded_file)
-                progress_bar.progress(80)
-                status_text.text("Сохранение данных...")
-                if count:
-                    progress_bar.progress(100)
-                    status_text.text("✅ Готово!")
-                    st.success(message)
-                    st.session_state.file_processed = uploaded_file.name
-                else:
-                    progress_bar.progress(100)
-                    status_text.text("❌ Ошибка!")
-                    st.error(message)
-                progress_bar.empty()
-                status_text.empty()
-            except Exception as e:
-                progress_bar.empty()
-                status_text.empty()
-                st.error(f"Ошибка при загрузке: {str(e)}")
-        else:
-            st.success(f"✅ Файл '{uploaded_file.name}' уже загружен")
-            if 'error_points' in st.session_state:
-                if st.session_state['error_points']:
-                    with st.expander("⚠️ Найдены ошибочные координаты"):
-                        st.warning(f"Обнаружено {len(st.session_state['error_points'])} точек")
-                        excel_data = data_processor.export_errors_to_excel(st.session_state['error_points'])
-                        if excel_data:
-                            st.download_button(
-                                label="📥 Скачать ошибочные точки (Excel)",
-                                data=excel_data,
-                                file_name=f"ошибочные_точки_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                            )
-                else:
-                    st.success("✅ Ошибок не найдено! Все координаты корректны.")
+#     if uploaded_file is not None:
+#         if ('file_processed' not in st.session_state or 
+#             st.session_state.file_processed != uploaded_file.name):
+#             progress_bar = st.progress(0)
+#             status_text = st.empty()
+#             try:
+#                 status_text.text("Чтение файла...")
+#                 progress_bar.progress(20)
+#                 count, message = data_processor.process_uploaded_file(uploaded_file)
+#                 progress_bar.progress(80)
+#                 status_text.text("Сохранение данных...")
+#                 if count:
+#                     progress_bar.progress(100)
+#                     status_text.text("✅ Готово!")
+#                     st.success(message)
+#                     st.session_state.file_processed = uploaded_file.name
+#                 else:
+#                     progress_bar.progress(100)
+#                     status_text.text("❌ Ошибка!")
+#                     st.error(message)
+#                 progress_bar.empty()
+#                 status_text.empty()
+#             except Exception as e:
+#                 progress_bar.empty()
+#                 status_text.empty()
+#                 st.error(f"Ошибка при загрузке: {str(e)}")
+#         else:
+#             st.success(f"✅ Файл '{uploaded_file.name}' уже загружен")
+#             if 'error_points' in st.session_state:
+#                 if st.session_state['error_points']:
+#                     with st.expander("⚠️ Найдены ошибочные координаты"):
+#                         st.warning(f"Обнаружено {len(st.session_state['error_points'])} точек")
+#                         excel_data = data_processor.export_errors_to_excel(st.session_state['error_points'])
+#                         if excel_data:
+#                             st.download_button(
+#                                 label="📥 Скачать ошибочные точки (Excel)",
+#                                 data=excel_data,
+#                                 file_name=f"ошибочные_точки_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+#                                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+#                             )
+#                 else:
+#                     st.success("✅ Ошибок не найдено! Все координаты корректны.")
     
-    st.markdown("---")
-    st.header("📈 Статистика")
-    try:
-        stats = data_processor.get_statistics()
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric("Всего визитов", stats['total_visits'])
-            st.metric("Городов", stats['cities'])
-        with col2:
-            st.metric("Аудиторов", stats['total_auditors'])
-            st.metric("Регионов", stats['regions'])
-    except Exception as e:
-        st.error(f"Ошибка получения статистики: {str(e)}")
+#     st.markdown("---")
+#     st.header("📈 Статистика")
+#     try:
+#         stats = data_processor.get_statistics()
+#         col1, col2 = st.columns(2)
+#         with col1:
+#             st.metric("Всего визитов", stats['total_visits'])
+#             st.metric("Городов", stats['cities'])
+#         with col2:
+#             st.metric("Аудиторов", stats['total_auditors'])
+#             st.metric("Регионов", stats['regions'])
+#     except Exception as e:
+#         st.error(f"Ошибка получения статистики: {str(e)}")
     
-    st.markdown("---")
-    st.header("⚙️ Действия")
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("💾 Сохранить данные", type="primary"):
-            success, message = data_processor.save_data()
-            if success:
-                data_processor.data = data_processor.load_data()
-                st.success(message)
-            else:
-                st.error(message)
-    with col2:
-        if st.button("🗑️ Очистить всё", type="secondary"):
-            data_processor.clear_data()
-            if 'file_processed' in st.session_state:
-                del st.session_state.file_processed
-            if 'polygons' in st.session_state:
-                del st.session_state.polygons
-            st.success("✅ Данные очищены")
+#     st.markdown("---")
+#     st.header("⚙️ Действия")
+#     col1, col2 = st.columns(2)
+#     with col1:
+#         if st.button("💾 Сохранить данные", type="primary"):
+#             success, message = data_processor.save_data()
+#             if success:
+#                 data_processor.data = data_processor.load_data()
+#                 st.success(message)
+#             else:
+#                 st.error(message)
+#     with col2:
+#         if st.button("🗑️ Очистить всё", type="secondary"):
+#             data_processor.clear_data()
+#             if 'file_processed' in st.session_state:
+#                 del st.session_state.file_processed
+#             if 'polygons' in st.session_state:
+#                 del st.session_state.polygons
+#             st.success("✅ Данные очищены")
     
-    st.markdown("---")
-    st.subheader("🗺️ Факт-полигоны")
-    fact_count = len(st.session_state.get('fact_polygons', {}))
-    st.metric("Загружено полигонов", fact_count)
-    if st.button("🗑️ Очистить полигоны", type="secondary"):
-        success, message = data_processor.clear_fact_polygons()
-        if success:
-            st.session_state['fact_polygons'] = {}
-            st.success(message)
-            st.rerun()
-        else:
-            st.error(message)
+#     st.markdown("---")
+#     st.subheader("🗺️ Факт-полигоны")
+#     fact_count = len(st.session_state.get('fact_polygons', {}))
+#     st.metric("Загружено полигонов", fact_count)
+#     if st.button("🗑️ Очистить полигоны", type="secondary"):
+#         success, message = data_processor.clear_fact_polygons()
+#         if success:
+#             st.session_state['fact_polygons'] = {}
+#             st.success(message)
+#             st.rerun()
+#         else:
+#             st.error(message)
     
-    # st.markdown("---")
-    # st.header("🔧 Параметры полигонов")
-    # min_points = st.slider("Минимальное количество точек", min_value=3, max_value=20, value=3)
-    # buffer_km = st.slider("Размер буфера (км)", min_value=0.0, max_value=5.0, value=0.5, step=0.1)
+#     # st.markdown("---")
+#     # st.header("🔧 Параметры полигонов")
+#     # min_points = st.slider("Минимальное количество точек", min_value=3, max_value=20, value=3)
+#     # buffer_km = st.slider("Размер буфера (км)", min_value=0.0, max_value=5.0, value=0.5, step=0.1)
     
-    # st.markdown("---")
-    # st.subheader("🔧 Параметры кластеризации")
-    # min_points = st.slider("Минимальное количество точек в кластере", min_value=3, max_value=10, value=3)
-    # auto_eps = st.checkbox("Автоматический подбор eps (рекомендуется)", value=True)
-    # if not auto_eps:
-    #     eps_km = st.slider("Радиус кластеризации (км)", min_value=0.5, max_value=5.0, value=1.0, step=0.1)
+#     # st.markdown("---")
+#     # st.subheader("🔧 Параметры кластеризации")
+#     # min_points = st.slider("Минимальное количество точек в кластере", min_value=3, max_value=10, value=3)
+#     # auto_eps = st.checkbox("Автоматический подбор eps (рекомендуется)", value=True)
+#     # if not auto_eps:
+#     #     eps_km = st.slider("Радиус кластеризации (км)", min_value=0.5, max_value=5.0, value=1.0, step=0.1)
 
 # ==============================================
 # ОСНОВНАЯ ОБЛАСТЬ
