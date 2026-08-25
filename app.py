@@ -626,6 +626,7 @@ with tab2:
                     
                     if result['status'] == 'success':
                         st.success(result['message'])
+                        st.balloons()
                     elif result['status'] == 'warning':
                         st.warning(result['message'])
                         if 'warnings' in result and result['warnings']:
