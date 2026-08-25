@@ -505,10 +505,15 @@ class PlanningEngine:
         # 7. Выравнивание полигонов
         cities_sorted = sorted(city_count.keys(), key=lambda c: city_count.get(c, 0))
         
-        all_candidates_df = pd.concat([
-            variable_selected_df if not variable_selected_df.empty else pd.DataFrame(),
-            retro_selected_df if not retro_selected_df.empty else pd.DataFrame()
-        ])
+        # ========== ЗАЩИТА ОТ ПУСТЫХ ДАННЫХ ==========
+        all_candidates_list = []
+        if not variable_selected_df.empty:
+            all_candidates_list.append(variable_selected_df)
+        if not retro_selected_df.empty:
+            all_candidates_list.append(retro_selected_df)
+        
+        all_candidates_df = pd.concat(all_candidates_list, ignore_index=True) if all_candidates_list else pd.DataFrame()
+        # =============================================
         
         for city in cities_sorted:
             if len(final_ap) + len(new_rows) >= target_ap:
@@ -518,7 +523,12 @@ class PlanningEngine:
             if not city_polygons:
                 continue
             
-            city_candidates = all_candidates_df[all_candidates_df['Город'] == city]
+            # ========== ПРОВЕРКА ПЕРЕД ИСПОЛЬЗОВАНИЕМ ==========
+            if not all_candidates_df.empty and 'Город' in all_candidates_df.columns:
+                city_candidates = all_candidates_df[all_candidates_df['Город'] == city]
+            else:
+                city_candidates = pd.DataFrame()
+            # =================================================
             city_top_points = self._get_top_proximity_points(city, city_candidates)
             
             current_counts = {p: polygon_count.get(p, 0) for p in city_polygons}
