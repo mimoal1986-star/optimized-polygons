@@ -703,6 +703,23 @@ with tab2:
                             st.dataframe(error_df.head(20), use_container_width=True)
                             if len(error_df) > 20:
                                 st.caption(f"... и еще {len(error_df) - 20} точек")
+                            
+                            # ==============================================
+                            # КНОПКА ДЛЯ СКАЧИВАНИЯ ПОТЕРЯННЫХ ТОЧЕК
+                            # ==============================================
+                            import io
+                            output = io.BytesIO()
+                            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                                error_df.to_excel(writer, sheet_name='Потерянные точки', index=False)
+                            output.seek(0)
+                            
+                            st.download_button(
+                                label="📥 Скачать потерянные точки (Excel)",
+                                data=output.getvalue(),
+                                file_name=f"потерянные_точки_константы_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                use_container_width=True
+                            )
                     
                     if 'final_ap' in result and not result['final_ap'].empty:
                         st.markdown("---")
