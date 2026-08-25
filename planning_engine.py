@@ -312,20 +312,13 @@ class PlanningEngine:
         # ========== ВЫБОР СТРАТЕГИИ ==========
         if self._use_rtree and self._rtree is not None:
             for point_idx, point in enumerate(points):
-                possible = self._rtree.query(point)
-                for poly_geom in possible:
-                    # Находим индекс геометрии в списке
-                    try:
-                        idx = self._polygon_geoms.index(poly_geom)
-                        poly_id = self._polygon_ids[idx]
-                        auditor = self._polygon_auditors[idx]
-                        if poly_geom.contains(point):
-                            df_copy.loc[valid_indices[point_idx], 'полигон_id'] = poly_id
-                            df_copy.loc[valid_indices[point_idx], 'Аудитор'] = auditor
-                            break
-                    except ValueError:
-                        # Если геометрия не найдена в списке — пропускаем
-                        continue
+                possible_indices = self._rtree.query(point)
+                for idx in possible_indices:
+                    poly_geom = self._polygon_geoms[idx]
+                    if poly_geom.contains(point):
+                        df_copy.loc[valid_indices[point_idx], 'полигон_id'] = self._polygon_ids[idx]
+                        df_copy.loc[valid_indices[point_idx], 'Аудитор'] = self._polygon_auditors[idx]
+                        break
         else:
             # МЕДЛЕННЫЙ ПУТЬ: вложенный цикл (для малых данных)
             for i, (prep_poly, poly_id, auditor) in enumerate(zip(prepared_polygons, polygon_ids, polygon_auditors)):
