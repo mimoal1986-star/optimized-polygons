@@ -805,7 +805,6 @@ with tab2:
                                 ['Переменная (отобрано)', stats.get('variable_selected', 0)],
                                 ['Ретро (отобрано)', stats.get('retro_selected', 0)],
                             ])
-                            stats_df.to_excel(writer, sheet_name='Статистика', index=False, header=False)
                         
                         output.seek(0)
                         
