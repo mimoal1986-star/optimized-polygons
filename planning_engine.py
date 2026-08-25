@@ -26,8 +26,6 @@ class PlanningEngine:
         self.retro_df = None
         self._polygon_cache = None
         self._rtree = None
-        self._polygon_ids_by_geom = {}
-        self._polygon_auditors_by_geom = {}
         self._use_rtree = False
         
     def load_files(self, constant_file, variable_file, retro_file):
@@ -257,19 +255,18 @@ class PlanningEngine:
                 polygon_ids.append(poly_id)
         
         # ========== СОЗДАЁМ R-TREE ==========
-        # Только если полигонов > 5 (иначе overhead > выигрыш)
         if len(polygon_geoms) > 5:
             self._rtree = STRtree(polygon_geoms)
-            self._polygon_ids_by_geom = {}
-            self._polygon_auditors_by_geom = {}
-            for i, poly_geom in enumerate(polygon_geoms):
-                self._polygon_ids_by_geom[id(poly_geom)] = polygon_ids[i]
-                self._polygon_auditors_by_geom[id(poly_geom)] = polygon_auditors[i]
+            # Сохраняем списки для поиска по индексу
+            self._polygon_geoms = polygon_geoms
+            self._polygon_ids = polygon_ids
+            self._polygon_auditors = polygon_auditors
             self._use_rtree = True
         else:
             self._rtree = None
-            self._polygon_ids_by_geom = {}
-            self._polygon_auditors_by_geom = {}
+            self._polygon_geoms = []
+            self._polygon_ids = []
+            self._polygon_auditors = []
             self._use_rtree = False
         # ==================================
         
@@ -312,15 +309,21 @@ class PlanningEngine:
         
         # ========== ВЫБОР СТРАТЕГИИ ==========
         if self._use_rtree and self._rtree is not None:
-            # БЫСТРЫЙ ПУТЬ: R-Tree (для РФ)
             for point_idx, point in enumerate(points):
                 possible = self._rtree.query(point)
                 for poly_geom in possible:
-                    poly_id = self._polygon_ids_by_geom.get(id(poly_geom))
-                    if poly_id is not None and poly_geom.contains(point):
-                        df_copy.loc[valid_indices[point_idx], 'полигон_id'] = poly_id
-                        df_copy.loc[valid_indices[point_idx], 'Аудитор'] = self._polygon_auditors_by_geom.get(id(poly_geom), '')
-                        break
+                    # Находим индекс геометрии в списке
+                    try:
+                        idx = self._polygon_geoms.index(poly_geom)
+                        poly_id = self._polygon_ids[idx]
+                        auditor = self._polygon_auditors[idx]
+                        if poly_geom.contains(point):
+                            df_copy.loc[valid_indices[point_idx], 'полигон_id'] = poly_id
+                            df_copy.loc[valid_indices[point_idx], 'Аудитор'] = auditor
+                            break
+                    except ValueError:
+                        # Если геометрия не найдена в списке — пропускаем
+                        continue
         else:
             # МЕДЛЕННЫЙ ПУТЬ: вложенный цикл (для малых данных)
             for i, (prep_poly, poly_id, auditor) in enumerate(zip(prepared_polygons, polygon_ids, polygon_auditors)):
