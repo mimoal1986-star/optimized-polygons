@@ -706,9 +706,37 @@ with tab4:
                         st.markdown("---")
                         st.subheader("📥 Экспорт финальной АП")
                         export_df = result['final_ap'].copy()
+                        
+                        # ==============================================
+                        # 1. ДОБАВЛЯЕМ СТОЛБЕЦ "ID клиента"
+                        # ==============================================
+                        
+                        # Функция: откуда брать ID клиента
+                        def get_client_id(row):
+                            source = row.get('Источник', '')
+                            
+                            if source in ['Константа', 'Переменная']:
+                                # Берём из колонки "Row Labels"
+                                return row.get('Row Labels', '')
+                            
+                            elif source == 'Ретро':
+                                # Берём из колонки "COL1 магазина"
+                                return row.get('COL1 магазина', '')
+                            
+                            else:
+                                return ''
+                        
+                        # Создаём колонку "ID клиента"
+                        export_df['ID клиента'] = export_df.apply(get_client_id, axis=1)
+                        
+                        # ==============================================
+                        # 2. ЕСЛИ НЕТ КОЛОНКИ "Источник" - ДОБАВЛЯЕМ
+                        # ==============================================
+                        
                         if 'Источник' not in export_df.columns:
                             constant_ids = set(result['constant_selected'].index) if not result['constant_selected'].empty else set()
                             variable_ids = set(result['variable_selected'].index) if not result['variable_selected'].empty else set()
+                            
                             def get_source(idx):
                                 if idx in constant_ids:
                                     return 'Константа'
@@ -716,13 +744,36 @@ with tab4:
                                     return 'Переменная'
                                 else:
                                     return 'Ретро'
+                            
                             export_df['Источник'] = export_df.index.map(get_source)
                         
-                        columns_order = ['Аудитор', 'Сеть', 'Customer Name', 'RED PoS Group', 'Город', 'Street Name', 'Longitude', 'Latitude', 'Источник']
+                        # ==============================================
+                        # 3. ПОРЯДОК КОЛОНОК (ID клиента - после Имени)
+                        # ==============================================
+                        
+                        columns_order = [
+                            'Аудитор', 
+                            'Сеть', 
+                            'Customer Name', 
+                            'ID клиента',      # ← НОВЫЙ СТОЛБЕЦ
+                            'RED PoS Group', 
+                            'Город', 
+                            'Street Name', 
+                            'Longitude', 
+                            'Latitude', 
+                            'Источник'
+                        ]
+                        
                         available_cols = [col for col in columns_order if col in export_df.columns]
                         export_df = export_df[available_cols]
+                        
+                        # ==============================================
+                        # 4. ПЕРЕИМЕНОВАНИЕ КОЛОНОК
+                        # ==============================================
+                        
                         rename_map = {
                             'Customer Name': 'Имя клиента',
+                            'ID клиента': 'ID клиента',
                             'RED PoS Group': 'Тип магазина',
                             'Город': 'Город',
                             'Street Name': 'Адрес',
@@ -730,13 +781,23 @@ with tab4:
                             'Latitude': 'Широта'
                         }
                         export_df = export_df.rename(columns=rename_map)
+                        
+                        # ==============================================
+                        # 5. ПРЕВЬЮ
+                        # ==============================================
+                        
                         st.dataframe(export_df.head(20), use_container_width=True)
                         st.caption(f"Показано первые 20 из {len(export_df)} строк")
+                        
+                        # ==============================================
+                        # 6. ЭКСПОРТ В EXCEL
+                        # ==============================================
                         
                         import io
                         output = io.BytesIO()
                         with pd.ExcelWriter(output, engine='openpyxl') as writer:
                             export_df.to_excel(writer, sheet_name='Финальная АП', index=False)
+                            
                             stats_df = pd.DataFrame([
                                 ['Параметр', 'Значение'],
                                 ['Целевой объем', stats.get('target_ap', 0)],
@@ -747,7 +808,9 @@ with tab4:
                                 ['Ретро (отобрано)', stats.get('retro_selected', 0)],
                             ])
                             stats_df.to_excel(writer, sheet_name='Статистика', index=False, header=False)
+                        
                         output.seek(0)
+                        
                         st.download_button(
                             label="📥 Скачать финальную АП (Excel)",
                             data=output.getvalue(),
