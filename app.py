@@ -283,115 +283,113 @@ with st.sidebar:
         else:
             st.error(message)
     
-    st.markdown("---")
-    st.header("🔧 Параметры полигонов")
-    min_points = st.slider("Минимальное количество точек", min_value=3, max_value=20, value=3)
-    buffer_km = st.slider("Размер буфера (км)", min_value=0.0, max_value=5.0, value=0.5, step=0.1)
+    # st.markdown("---")
+    # st.header("🔧 Параметры полигонов")
+    # min_points = st.slider("Минимальное количество точек", min_value=3, max_value=20, value=3)
+    # buffer_km = st.slider("Размер буфера (км)", min_value=0.0, max_value=5.0, value=0.5, step=0.1)
     
-    st.markdown("---")
-    st.subheader("🔧 Параметры кластеризации")
-    min_points = st.slider("Минимальное количество точек в кластере", min_value=3, max_value=10, value=3)
-    auto_eps = st.checkbox("Автоматический подбор eps (рекомендуется)", value=True)
-    if not auto_eps:
-        eps_km = st.slider("Радиус кластеризации (км)", min_value=0.5, max_value=5.0, value=1.0, step=0.1)
+    # st.markdown("---")
+    # st.subheader("🔧 Параметры кластеризации")
+    # min_points = st.slider("Минимальное количество точек в кластере", min_value=3, max_value=10, value=3)
+    # auto_eps = st.checkbox("Автоматический подбор eps (рекомендуется)", value=True)
+    # if not auto_eps:
+    #     eps_km = st.slider("Радиус кластеризации (км)", min_value=0.5, max_value=5.0, value=1.0, step=0.1)
 
 # ==============================================
 # ОСНОВНАЯ ОБЛАСТЬ
 # ==============================================
-tab1, tab2, tab3, tab4 = st.tabs(
-    ["📋 Данные", "📐 Полигоны", "📥 Экспорт", "📅 Планирование"]
-)
+tab1, tab2 = st.tabs(["📐 Полигоны", "📅 Планирование"])
+
+# with tab1:
+#     st.header("Просмотр данных")
+#     auditors = data_processor.get_auditors()
+#     selected_auditor = st.selectbox("Выберите аудитора", ["Все"] + auditors if auditors else ["Все"])
+#     if selected_auditor == "Все":
+#         data_list = list(data_processor.data.values())
+#     else:
+#         data_list = data_processor.get_data_by_auditor(selected_auditor)
+#     if data_list:
+#         df = pd.DataFrame(data_list)
+#         if 'lat' in df.columns and 'lon' in df.columns:
+#             df['lat'] = pd.to_numeric(df['lat'], errors='coerce')
+#             df['lon'] = pd.to_numeric(df['lon'], errors='coerce')
+#             df = df.dropna(subset=['lat', 'lon'])
+#         if not df.empty:
+#             display_cols = ['tp_id', 'auditor', 'city', 'visit_date', 'lat', 'lon']
+#             display_cols = [col for col in display_cols if col in df.columns]
+#             search = st.text_input("🔍 Поиск по ТП или городу", "")
+#             if search:
+#                 mask = pd.Series(False, index=df.index)
+#                 if 'tp_id' in df.columns:
+#                     mask = mask | df['tp_id'].str.contains(search, case=False, na=False)
+#                 if 'city' in df.columns:
+#                     mask = mask | df['city'].str.contains(search, case=False, na=False)
+#                 df = df[mask]
+#             page_size = 50
+#             total_records = len(df)
+#             total_pages = max(1, (total_records + page_size - 1) // page_size)
+#             if total_pages > 1:
+#                 page = st.number_input(f"Страница (всего {total_pages})", min_value=1, max_value=total_pages, value=1)
+#                 start_idx = (page - 1) * page_size
+#                 end_idx = min(start_idx + page_size, total_records)
+#                 df_display = df.iloc[start_idx:end_idx]
+#                 st.caption(f"Показано {start_idx + 1}-{end_idx} из {total_records} записей")
+#             else:
+#                 df_display = df
+#                 st.caption(f"Всего записей: {total_records}")
+#             st.dataframe(df_display[display_cols], use_container_width=True, height=400)
+#         else:
+#             st.info("Нет данных с валидными координатами")
+#     else:
+#         st.info("Нет данных для отображения. Загрузите файл с данными.")
 
 with tab1:
-    st.header("Просмотр данных")
-    auditors = data_processor.get_auditors()
-    selected_auditor = st.selectbox("Выберите аудитора", ["Все"] + auditors if auditors else ["Все"])
-    if selected_auditor == "Все":
-        data_list = list(data_processor.data.values())
-    else:
-        data_list = data_processor.get_data_by_auditor(selected_auditor)
-    if data_list:
-        df = pd.DataFrame(data_list)
-        if 'lat' in df.columns and 'lon' in df.columns:
-            df['lat'] = pd.to_numeric(df['lat'], errors='coerce')
-            df['lon'] = pd.to_numeric(df['lon'], errors='coerce')
-            df = df.dropna(subset=['lat', 'lon'])
-        if not df.empty:
-            display_cols = ['tp_id', 'auditor', 'city', 'visit_date', 'lat', 'lon']
-            display_cols = [col for col in display_cols if col in df.columns]
-            search = st.text_input("🔍 Поиск по ТП или городу", "")
-            if search:
-                mask = pd.Series(False, index=df.index)
-                if 'tp_id' in df.columns:
-                    mask = mask | df['tp_id'].str.contains(search, case=False, na=False)
-                if 'city' in df.columns:
-                    mask = mask | df['city'].str.contains(search, case=False, na=False)
-                df = df[mask]
-            page_size = 50
-            total_records = len(df)
-            total_pages = max(1, (total_records + page_size - 1) // page_size)
-            if total_pages > 1:
-                page = st.number_input(f"Страница (всего {total_pages})", min_value=1, max_value=total_pages, value=1)
-                start_idx = (page - 1) * page_size
-                end_idx = min(start_idx + page_size, total_records)
-                df_display = df.iloc[start_idx:end_idx]
-                st.caption(f"Показано {start_idx + 1}-{end_idx} из {total_records} записей")
-            else:
-                df_display = df
-                st.caption(f"Всего записей: {total_records}")
-            st.dataframe(df_display[display_cols], use_container_width=True, height=400)
-        else:
-            st.info("Нет данных с валидными координатами")
-    else:
-        st.info("Нет данных для отображения. Загрузите файл с данными.")
-
-with tab2:
-    st.header("📐 Генерация полигонов")
-    if not data_processor.data:
-        st.warning("Нет данных для генерации полигонов. Сначала загрузите файл с данными.")
-    else:
-        auditors = data_processor.get_auditors()
-        if not auditors:
-            st.warning("Нет аудиторов в данных")
-        else:
-            st.info(f"👤 Найдено аудиторов: {len(auditors)}")
-            if st.button("🚀 Создать полигоны для всех аудиторов", type="primary"):
-                with st.spinner("🔄 Кластеризация и построение полигонов..."):
-                    progress_bar = st.progress(0)
-                    status_text = st.empty()
-                    all_polygons = []
-                    errors = []
-                    total_auditors = len(auditors)
-                    for i, auditor in enumerate(auditors):
-                        status_text.text(f"Обработка: {auditor} ({i+1}/{total_auditors})")
-                        polygons = polygon_builder.build_polygons_for_auditor(
-                            auditor, buffer_km=buffer_km, min_points=min_points
-                        )
-                        if polygons:
-                            all_polygons.extend(polygons)
-                        else:
-                            errors.append(f"{auditor}: не удалось создать полигоны")
-                        progress_bar.progress((i + 1) / total_auditors)
-                    progress_bar.progress(1.0)
-                    status_text.text("✅ Готово!")
-                    st.session_state['polygons'] = all_polygons
-                    if all_polygons:
-                        cities_count = len(set([p['city'] for p in all_polygons]))
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
-                            st.metric("Всего полигонов", len(all_polygons))
-                        with col2:
-                            st.metric("Затронуто городов", cities_count)
-                        with col3:
-                            total_area = sum([p['area_km2'] for p in all_polygons])
-                            st.metric("Общая площадь (км²)", f"{total_area:.1f}")
-                        st.success(f"✅ Создано {len(all_polygons)} полигонов для {len(auditors)} аудиторов")
-                    else:
-                        st.error("❌ Не удалось создать ни одного полигона")
-                    if errors:
-                        with st.expander("⚠️ Ошибки при создании полигонов"):
-                            for error in errors:
-                                st.code(error)
+    # st.header("📐 Генерация полигонов")
+    # if not data_processor.data:
+    #     st.warning("Нет данных для генерации полигонов. Сначала загрузите файл с данными.")
+    # else:
+    #     auditors = data_processor.get_auditors()
+    #     if not auditors:
+    #         st.warning("Нет аудиторов в данных")
+    #     else:
+    #         st.info(f"👤 Найдено аудиторов: {len(auditors)}")
+    #         if st.button("🚀 Создать полигоны для всех аудиторов", type="primary"):
+    #             with st.spinner("🔄 Кластеризация и построение полигонов..."):
+    #                 progress_bar = st.progress(0)
+    #                 status_text = st.empty()
+    #                 all_polygons = []
+    #                 errors = []
+    #                 total_auditors = len(auditors)
+    #                 for i, auditor in enumerate(auditors):
+    #                     status_text.text(f"Обработка: {auditor} ({i+1}/{total_auditors})")
+    #                     polygons = polygon_builder.build_polygons_for_auditor(
+    #                         auditor, buffer_km=buffer_km, min_points=min_points
+    #                     )
+    #                     if polygons:
+    #                         all_polygons.extend(polygons)
+    #                     else:
+    #                         errors.append(f"{auditor}: не удалось создать полигоны")
+    #                     progress_bar.progress((i + 1) / total_auditors)
+    #                 progress_bar.progress(1.0)
+    #                 status_text.text("✅ Готово!")
+    #                 st.session_state['polygons'] = all_polygons
+    #                 if all_polygons:
+    #                     cities_count = len(set([p['city'] for p in all_polygons]))
+    #                     col1, col2, col3 = st.columns(3)
+    #                     with col1:
+    #                         st.metric("Всего полигонов", len(all_polygons))
+    #                     with col2:
+    #                         st.metric("Затронуто городов", cities_count)
+    #                     with col3:
+    #                         total_area = sum([p['area_km2'] for p in all_polygons])
+    #                         st.metric("Общая площадь (км²)", f"{total_area:.1f}")
+    #                     st.success(f"✅ Создано {len(all_polygons)} полигонов для {len(auditors)} аудиторов")
+    #                 else:
+    #                     st.error("❌ Не удалось создать ни одного полигона")
+    #                 if errors:
+    #                     with st.expander("⚠️ Ошибки при создании полигонов"):
+    #                         for error in errors:
+    #                             st.code(error)
     
     st.markdown("---")
     st.subheader("📥 Загрузка факт-полигонов")
@@ -419,80 +417,80 @@ with tab2:
             except Exception as e:
                 st.error(f"❌ Ошибка при загрузке: {str(e)}")
 
-with tab3:
-    st.header("📤 Экспорт данных")
-    if 'polygons' in st.session_state and st.session_state['polygons']:
-        polygons = st.session_state['polygons']
-        cities = sorted(set([p['city'] for p in polygons]))
-        st.subheader("🏙️ Экспорт по городам")
-        col1, col2 = st.columns([2, 1])
-        with col1:
-            selected_city = st.selectbox("Выберите город для экспорта:", ["Все города"] + cities)
-        with col2:
-            if st.button("📥 Создать KML", type="primary"):
-                with st.spinner("Создание KML файла..."):
-                    if selected_city == "Все города":
-                        kml_content = generate_kml_simple(polygons)
-                        filename = f"polygons_all_{datetime.now().strftime('%Y%m%d_%H%M%S')}.kml"
-                        label = "Скачать все полигоны"
-                    else:
-                        city_polygons = [p for p in polygons if p['city'] == selected_city]
-                        kml_content = generate_kml_simple(city_polygons)
-                        filename = f"polygons_{selected_city}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.kml"
-                        label = f"Скачать KML ({selected_city})"
-                    if kml_content:
-                        st.download_button(
-                            label=label,
-                            data=kml_content.encode('utf-8'),
-                            file_name=filename,
-                            mime="application/vnd.google-earth.kml+xml",
-                            use_container_width=True
-                        )
-                        st.success(f"✅ KML создан: {len(city_polygons if selected_city != 'Все города' else polygons)} полигонов")
-                    else:
-                        st.error("Ошибка при создании KML")
-        with st.expander("📊 Статистика по городам", expanded=False):
-            city_stats = {}
-            for p in polygons:
-                city = p['city']
-                if city not in city_stats:
-                    city_stats[city] = 0
-                city_stats[city] += 1
-            st.write("Количество полигонов по городам:")
-            for city, count in sorted(city_stats.items()):
-                st.write(f"  • {city}: {count} полигонов")
-        st.subheader("🗺️ Экспорт всех полигонов")
-        if st.button("📥 Создать KML (все города)"):
-            with st.spinner("Создание KML файла..."):
-                kml_content = generate_kml_simple(polygons)
-                if kml_content:
-                    st.download_button(
-                        label="Скачать KML (все города)",
-                        data=kml_content.encode('utf-8'),
-                        file_name=f"polygons_all_{datetime.now().strftime('%Y%m%d_%H%M%S')}.kml",
-                        mime="application/vnd.google-earth.kml+xml",
-                        use_container_width=True
-                    )
-                else:
-                    st.error("Ошибка при создании KML")
-        st.subheader("📊 Экспорт в CSV для Google My Maps")
-        if st.button("📥 Создать CSV"):
-            with st.spinner("Создание CSV файла..."):
-                csv_content = generate_csv_for_google(polygons)
-                if csv_content:
-                    st.download_button(
-                        label="Скачать CSV (Google My Maps)",
-                        data=csv_content.encode('utf-8-sig'),
-                        file_name=f"polygons_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                        mime="text/csv",
-                        use_container_width=True
-                    )
-                else:
-                    st.error("Ошибка при создании CSV")
-    else:
-        st.info("Сначала создайте полигоны в разделе '📐 Полигоны'")
+# with tab3:
+#     st.header("📤 Экспорт данных")
+#     if 'polygons' in st.session_state and st.session_state['polygons']:
+#         polygons = st.session_state['polygons']
+#         cities = sorted(set([p['city'] for p in polygons]))
+#         st.subheader("🏙️ Экспорт по городам")
+#         col1, col2 = st.columns([2, 1])
+#         with col1:
+#             selected_city = st.selectbox("Выберите город для экспорта:", ["Все города"] + cities)
+#         with col2:
+#             if st.button("📥 Создать KML", type="primary"):
+#                 with st.spinner("Создание KML файла..."):
+#                     if selected_city == "Все города":
+#                         kml_content = generate_kml_simple(polygons)
+#                         filename = f"polygons_all_{datetime.now().strftime('%Y%m%d_%H%M%S')}.kml"
+#                         label = "Скачать все полигоны"
+#                     else:
+#                         city_polygons = [p for p in polygons if p['city'] == selected_city]
+#                         kml_content = generate_kml_simple(city_polygons)
+#                         filename = f"polygons_{selected_city}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.kml"
+#                         label = f"Скачать KML ({selected_city})"
+#                     if kml_content:
+#                         st.download_button(
+#                             label=label,
+#                             data=kml_content.encode('utf-8'),
+#                             file_name=filename,
+#                             mime="application/vnd.google-earth.kml+xml",
+#                             use_container_width=True
+#                         )
+#                         st.success(f"✅ KML создан: {len(city_polygons if selected_city != 'Все города' else polygons)} полигонов")
+#                     else:
+#                         st.error("Ошибка при создании KML")
+#         with st.expander("📊 Статистика по городам", expanded=False):
+#             city_stats = {}
+#             for p in polygons:
+#                 city = p['city']
+#                 if city not in city_stats:
+#                     city_stats[city] = 0
+#                 city_stats[city] += 1
+#             st.write("Количество полигонов по городам:")
+#             for city, count in sorted(city_stats.items()):
+#                 st.write(f"  • {city}: {count} полигонов")
+#         st.subheader("🗺️ Экспорт всех полигонов")
+#         if st.button("📥 Создать KML (все города)"):
+#             with st.spinner("Создание KML файла..."):
+#                 kml_content = generate_kml_simple(polygons)
+#                 if kml_content:
+#                     st.download_button(
+#                         label="Скачать KML (все города)",
+#                         data=kml_content.encode('utf-8'),
+#                         file_name=f"polygons_all_{datetime.now().strftime('%Y%m%d_%H%M%S')}.kml",
+#                         mime="application/vnd.google-earth.kml+xml",
+#                         use_container_width=True
+#                     )
+#                 else:
+#                     st.error("Ошибка при создании KML")
+#         st.subheader("📊 Экспорт в CSV для Google My Maps")
+#         if st.button("📥 Создать CSV"):
+#             with st.spinner("Создание CSV файла..."):
+#                 csv_content = generate_csv_for_google(polygons)
+#                 if csv_content:
+#                     st.download_button(
+#                         label="Скачать CSV (Google My Maps)",
+#                         data=csv_content.encode('utf-8-sig'),
+#                         file_name=f"polygons_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+#                         mime="text/csv",
+#                         use_container_width=True
+#                     )
+#                 else:
+#                     st.error("Ошибка при создании CSV")
+#     else:
+#         st.info("Сначала создайте полигоны в разделе '📐 Полигоны'")
 
-with tab4:
+with tab2:
     st.header("📅 Формирование плана визитов (АП)")
     st.markdown("---")
     
