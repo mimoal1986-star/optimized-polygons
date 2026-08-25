@@ -256,21 +256,47 @@ class PlanningEngine:
                 polygon_cities.append(poly_data.get('city', 'Неизвестно'))
                 polygon_ids.append(poly_id)
         
-        # ========== СОЗДАЁМ R-TREE ==========
+        # ========== СОЗДАЁМ R-TREE ПО ГОРОДАМ ==========
+        # Группируем полигоны по городам
+        city_groups = {}
+        for i, city in enumerate(polygon_cities):
+            if city not in city_groups:
+                city_groups[city] = []
+            city_groups[city].append(i)
+        
+        # Словарь для R-Tree: ключ = город, значение = данные
+        self._rtrees = {}
+        self._use_rtree = False
+        
         if len(polygon_geoms) > 5:
-            self._rtree = STRtree(polygon_geoms)
-            # Сохраняем списки для поиска по индексу
-            self._polygon_geoms = polygon_geoms
-            self._polygon_ids = polygon_ids
-            self._polygon_auditors = polygon_auditors
-            self._use_rtree = True
+            # 1. Создаём R-Tree для каждого города (если в городе >= 2 полигона)
+            for city, indices in city_groups.items():
+                if len(indices) < 2:
+                    continue
+                    
+                group_geoms = [polygon_geoms[i] for i in indices]
+                group_ids = [polygon_ids[i] for i in indices]
+                group_auditors = [polygon_auditors[i] for i in indices]
+                
+                self._rtrees[city] = {
+                    'tree': STRtree(group_geoms),
+                    'geoms': group_geoms,
+                    'ids': group_ids,
+                    'auditors': group_auditors
+                }
+                self._use_rtree = True
+            
+            # 2. Создаём ОБЩИЙ R-Tree для всех полигонов (fallback)
+            self._rtrees['default'] = {
+                'tree': STRtree(polygon_geoms),
+                'geoms': polygon_geoms,
+                'ids': polygon_ids,
+                'auditors': polygon_auditors
+            }
         else:
-            self._rtree = None
-            self._polygon_geoms = []
-            self._polygon_ids = []
-            self._polygon_auditors = []
+            self._rtrees = {}
             self._use_rtree = False
-        # ==================================
+        # =================================================
         
         self._polygon_cache = (prepared_polygons, polygon_ids, polygon_auditors, polygon_cities, polygon_geoms)
         return self._polygon_cache
@@ -310,14 +336,35 @@ class PlanningEngine:
             return pd.DataFrame()
         
         # ========== ВЫБОР СТРАТЕГИИ ==========
-        if self._use_rtree and self._rtree is not None:
+        if self._use_rtree and self._rtrees:
             for point_idx, point in enumerate(points):
-                possible_indices = self._rtree.query(point)
+                point_idx_in_df = valid_indices[point_idx]
+                
+                # Определяем город точки
+                if 'Город' in df_copy.columns:
+                    city = df_copy.loc[point_idx_in_df, 'Город']
+                    if pd.isna(city) or not city:
+                        city = None
+                else:
+                    city = None
+                
+                # Выбираем R-Tree: по городу или default
+                if city and city in self._rtrees:
+                    rtree_data = self._rtrees[city]
+                elif 'default' in self._rtrees:
+                    rtree_data = self._rtrees['default']
+                else:
+                    continue
+                
+                possible_indices = rtree_data['tree'].query(point)
+                if len(possible_indices) == 0:
+                    continue
+                    
                 for idx in possible_indices:
-                    poly_geom = self._polygon_geoms[idx]
+                    poly_geom = rtree_data['geoms'][idx]
                     if poly_geom.contains(point):
-                        df_copy.loc[valid_indices[point_idx], 'полигон_id'] = self._polygon_ids[idx]
-                        df_copy.loc[valid_indices[point_idx], 'Аудитор'] = self._polygon_auditors[idx]
+                        df_copy.loc[point_idx_in_df, 'полигон_id'] = rtree_data['ids'][idx]
+                        df_copy.loc[point_idx_in_df, 'Аудитор'] = rtree_data['auditors'][idx]
                         break
         else:
             # МЕДЛЕННЫЙ ПУТЬ: вложенный цикл (для малых данных)
