@@ -166,12 +166,16 @@ st.set_page_config(
 @st.cache_resource
 def init_processors():
     return DataProcessor()
-
 try:
     data_processor = init_processors()
     cluster_engine = ClusterEngine()
     polygon_builder = PolygonBuilder(data_processor)
     planning_engine = PlanningEngine()
+    
+    # 1. СНАЧАЛА загружаем Константу (если есть)
+    # Константа загружается через интерфейс в tab4
+    # Поэтому здесь только полигоны
+    
     if 'fact_polygons' not in st.session_state:
         st.session_state['fact_polygons'] = data_processor.load_fact_polygons()
 except Exception as e:
